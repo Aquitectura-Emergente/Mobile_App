@@ -1,6 +1,6 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-import 'app_i18n.dart';
+import '../../../services/app_i18n.dart';
 
 /// Local notifications (no Firebase): the app raises a device notification
 /// when a DANGER-level reading arrives over the WebSocket, respecting the

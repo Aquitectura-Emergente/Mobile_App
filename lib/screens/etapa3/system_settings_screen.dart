@@ -4,13 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../../models/client_models.dart';
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../contexts/iam/domain/client_profile.dart';
+import '../../contexts/iam/infrastructure/session_store.dart';
+import '../../contexts/iottelemetry/application/device_facade.dart';
+import '../../contexts/iottelemetry/domain/client_device.dart';
+import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
+import '../../core/http/api_client.dart';
 import '../../routes/etapa2_routes.dart';
-import '../../services/api_client.dart';
 import '../../services/app_i18n.dart';
 import '../../services/app_settings_store.dart';
-import '../../services/client_api.dart';
-import '../../services/session_store.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
 import 'etapa3_components.dart';
@@ -41,8 +44,8 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   }
 
   Future<_SettingsData> _load() async {
-    final profile = await ClientApi.profile();
-    final devices = await ClientApi.devices();
+    final profile = await AuthFacade.profile();
+    final devices = await DeviceFacade.all();
     return _SettingsData(profile, devices);
   }
 
@@ -71,7 +74,7 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   Future<void> _exportCsv() async {
     setState(() => _busy = true);
     try {
-      final readings = await ClientApi.readings();
+      final readings = await MonitoringFacade.allReadings();
       if (readings.isEmpty) {
         _toast(tr('set_exportEmpty'));
         return;
@@ -225,7 +228,7 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
 
     setState(() => _busy = true);
     try {
-      await ClientApi.deleteAccount(pw.text);
+      await AuthFacade.deleteAccount(pw.text);
       if (!mounted) return;
       _toast(tr('del_done'));
       Navigator.of(context)

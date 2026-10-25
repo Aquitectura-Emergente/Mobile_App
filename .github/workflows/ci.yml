@@ -1,0 +1,41 @@
+# CI del movil: analisis estatico y tests de dominio.
+#
+# Hasta el 2026-10-24 este repo no tenia CI y `test/` contenia un unico
+# archivo, asi que un refactor podia romper la app sin que nada avisara.
+#
+# No se compila el APK a proposito: requiere el SDK de Android y alarga el
+# workflow varios minutos. `flutter analyze` ya detecta los errores de tipos
+# y de imports, que es donde se rompe un refactor.
+
+name: CI — Mobile
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  analyze-and-test:
+    name: Analizar y probar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Instalar dependencias
+        run: flutter pub get
+
+      # --fatal-infos deja el gate en cero avisos: ahora mismo el repo esta
+      # limpio y conviene que siga asi, porque los `info` de Dart suelen
+      # señalar codigo que se puede simplificar de verdad.
+      - name: Analisis estatico
+        run: flutter analyze --fatal-infos
+
+      - name: Tests
+        run: flutter test

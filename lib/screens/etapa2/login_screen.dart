@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../routes/etapa2_routes.dart';
 import '../../routes/etapa3_routes.dart';
-import '../../services/api_client.dart';
-import '../../services/client_api.dart';
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../core/http/api_client.dart';
 
 /// Login (Etapa 2) — now wired to the real backend (/api/auth/login).
 /// Responsive + compacto y fiel a Figma (sin alturas rígidas).
@@ -44,7 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await ClientApi.login(email, password);
+      await AuthFacade.login(email, password);
       if (!mounted) return;
       Navigator.of(context)
           .pushNamedAndRemoveUntil(Etapa3Routes.dashboardOverview, (route) => false);

@@ -3,8 +3,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../routes/etapa2_routes.dart';
-import '../../services/api_client.dart';
-import '../../services/client_api.dart';
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../core/http/api_client.dart';
 import '../../services/onboarding_flow_store.dart';
 
 class CreateAccountScreen extends StatefulWidget {
@@ -38,7 +38,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
 
     setState(() => _submitting = true);
     try {
-      await ClientApi.register(
+      await AuthFacade.register(
         name: draft.displayName,
         email: draft.email,
         password: _passwordController.text,

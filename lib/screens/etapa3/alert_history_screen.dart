@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../models/client_models.dart';
-import '../../services/api_client.dart';
+import '../../contexts/alerts/application/alert_facade.dart';
+import '../../contexts/alerts/domain/client_alert.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
 import 'etapa3_components.dart';
 
 class AlertHistoryScreen extends StatefulWidget {
@@ -19,11 +19,11 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
   @override
   void initState() {
     super.initState();
-    _future = ClientApi.alerts();
+    _future = AlertFacade.all();
   }
 
   void _reload() {
-    setState(() => _future = ClientApi.alerts());
+    setState(() => _future = AlertFacade.all());
   }
 
   @override

@@ -3,15 +3,15 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:stomp_dart_client/stomp_dart_client.dart';
 
-import '../config/api_config.dart';
-import '../screens/etapa3/etapa3_components.dart';
-import 'api_client.dart';
-import 'app_i18n.dart';
-import 'app_navigator.dart';
-import 'app_settings_store.dart';
-import 'client_api.dart';
+import '../../../config/api_config.dart';
+import '../../../core/http/api_client.dart';
+import '../../../screens/etapa3/etapa3_components.dart';
+import '../../../services/app_i18n.dart';
+import '../../../services/app_navigator.dart';
+import '../../../services/app_settings_store.dart';
+import '../../iam/infrastructure/session_store.dart';
+import 'device_api.dart';
 import 'notification_service.dart';
-import 'session_store.dart';
 
 /// STOMP/WebSocket client for live telemetry.
 ///
@@ -195,7 +195,7 @@ class _DangerAlertGateState extends State<DangerAlertGate> {
 
     if (cut == true) {
       try {
-        await ClientApi.setPlug(deviceId, 'OFF');
+        await DeviceApi.setPlug(deviceId, 'OFF');
         RealtimeService.readingTick.value++; // nudge screens to refresh
       } on ApiException catch (e) {
         final messenger = appNavigatorKey.currentContext;

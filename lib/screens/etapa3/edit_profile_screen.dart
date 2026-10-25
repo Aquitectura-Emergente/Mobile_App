@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../models/client_models.dart';
-import '../../services/api_client.dart';
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../contexts/iam/domain/client_profile.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
 import 'etapa3_components.dart';
 import 'subpage_scaffold.dart';
 
@@ -33,7 +33,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<ClientProfile> _load() async {
-    final profile = await ClientApi.profile();
+    final profile = await AuthFacade.profile();
     _name.text = profile.name;
     _phone.text = profile.phone ?? '';
     _location.text = profile.location ?? '';
@@ -49,7 +49,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
     setState(() => _saving = true);
     try {
-      await ClientApi.updateProfile(
+      await AuthFacade.updateProfile(
         name: _name.text.trim(),
         phone: _phone.text.trim(),
         location: _location.text.trim(),

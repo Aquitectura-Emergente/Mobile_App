@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../services/api_client.dart';
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
 import 'subpage_scaffold.dart';
 
 /// Change the client's own password. Backed by PATCH /api/client/password
@@ -31,7 +31,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
     setState(() => _saving = true);
     try {
-      await ClientApi.changePassword(_current.text, _next.text);
+      await AuthFacade.changePassword(_current.text, _next.text);
       if (!mounted) return;
       _toast(tr('pw_saved'));
       Navigator.of(context).pop(true);

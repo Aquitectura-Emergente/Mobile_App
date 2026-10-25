@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../models/client_models.dart';
-import '../../services/api_client.dart';
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../contexts/iam/domain/client_profile.dart';
+import '../../contexts/iottelemetry/application/device_facade.dart';
+import '../../contexts/iottelemetry/domain/client_device.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
 import 'etapa3_components.dart';
 import 'subpage_scaffold.dart';
 
@@ -42,8 +44,8 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
   }
 
   Future<_MapData> _load() async {
-    final profile = await ClientApi.profile();
-    final devices = await ClientApi.devices();
+    final profile = await AuthFacade.profile();
+    final devices = await DeviceFacade.all();
     return _MapData(profile, devices);
   }
 

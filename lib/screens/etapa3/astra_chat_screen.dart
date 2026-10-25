@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../services/api_client.dart';
+import '../../contexts/clientportal/application/astra_facade.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
 import 'etapa3_components.dart';
 import 'subpage_scaffold.dart';
 
@@ -52,7 +52,7 @@ class _AstraChatScreenState extends State<AstraChatScreen> {
     _scrollToEnd();
 
     try {
-      final reply = await ClientApi.chat(text, history);
+      final reply = await AstraFacade.ask(text, history);
       if (!mounted) return;
       setState(() => _messages.add(_ChatMessage('model', reply)));
     } on ApiException catch (e) {

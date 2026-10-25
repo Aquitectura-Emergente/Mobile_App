@@ -2,12 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../models/client_models.dart';
-import '../../services/api_client.dart';
+import '../../contexts/iottelemetry/domain/client_device.dart';
+import '../../contexts/iottelemetry/infrastructure/notification_service.dart';
+import '../../contexts/iottelemetry/infrastructure/realtime_service.dart';
+import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
+import '../../contexts/radiationmonitoring/domain/client_dashboard.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
-import '../../services/notification_service.dart';
-import '../../services/realtime_service.dart';
 import 'astra_chat_screen.dart';
 import 'etapa3_components.dart';
 import 'map_radiation_screen.dart';
@@ -28,7 +29,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   @override
   void initState() {
     super.initState();
-    _future = ClientApi.dashboard();
+    _future = MonitoringFacade.dashboard();
     // Live updates: refresh (debounced) whenever a reading arrives via STOMP.
     RealtimeService.ensureConnected();
     RealtimeService.readingTick.addListener(_onLiveReading);
@@ -50,7 +51,7 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   }
 
   void _reload() {
-    setState(() => _future = ClientApi.dashboard());
+    setState(() => _future = MonitoringFacade.dashboard());
   }
 
   @override

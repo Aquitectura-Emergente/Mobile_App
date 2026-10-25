@@ -2,10 +2,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../config/api_config.dart';
-import '../routes/etapa2_routes.dart';
-import 'app_navigator.dart';
-import 'session_store.dart';
+import '../../config/api_config.dart';
+import '../../contexts/iam/infrastructure/session_store.dart';
+import '../../routes/etapa2_routes.dart';
+import '../../services/app_navigator.dart';
 
 /// Thrown when a request fails. Carries a user-friendly message and (when known)
 /// the HTTP status code.

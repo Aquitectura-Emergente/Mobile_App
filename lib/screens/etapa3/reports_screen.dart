@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../models/client_models.dart';
-import '../../services/api_client.dart';
+import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
+import '../../contexts/radiationmonitoring/domain/client_report.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
 import 'etapa3_components.dart';
 import 'subpage_scaffold.dart';
 
@@ -23,19 +23,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   void initState() {
     super.initState();
-    _future = ClientApi.report(_period);
+    _future = MonitoringFacade.report(_period);
   }
 
   void _setPeriod(String period) {
     if (period == _period) return;
     setState(() {
       _period = period;
-      _future = ClientApi.report(period);
+      _future = MonitoringFacade.report(period);
     });
   }
 
   void _reload() {
-    setState(() => _future = ClientApi.report(_period));
+    setState(() => _future = MonitoringFacade.report(_period));
   }
 
   @override

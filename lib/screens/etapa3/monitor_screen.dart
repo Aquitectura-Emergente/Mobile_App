@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../models/client_models.dart';
-import '../../services/api_client.dart';
+import '../../contexts/iottelemetry/application/device_facade.dart';
+import '../../contexts/iottelemetry/domain/client_device.dart';
+import '../../contexts/iottelemetry/infrastructure/realtime_service.dart';
+import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
+import '../../contexts/radiationmonitoring/domain/client_reading.dart';
+import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
-import '../../services/client_api.dart';
-import '../../services/realtime_service.dart';
 import 'etapa3_components.dart';
 
 /// Loaded payload for the monitor screen: all devices + the selected one
@@ -57,14 +59,14 @@ class _MonitorScreenState extends State<MonitorScreen> {
   }
 
   Future<_SensorData> _load() async {
-    final devices = await ClientApi.devices();
+    final devices = await DeviceFacade.all();
     if (devices.isEmpty) return _SensorData(devices, null, const []);
     final selected = devices.firstWhere(
       (d) => d.id == _selectedId,
       orElse: () => devices.first,
     );
     _selectedId = selected.id;
-    final readings = await ClientApi.deviceReadings(selected.id);
+    final readings = await MonitoringFacade.deviceReadings(selected.id);
     return _SensorData(devices, selected, readings);
   }
 
@@ -83,7 +85,7 @@ class _MonitorScreenState extends State<MonitorScreen> {
   Future<void> _setPlug(ClientDevice device, bool on) async {
     setState(() => _plugBusy = true);
     try {
-      await ClientApi.setPlug(device.id, on ? 'ON' : 'OFF');
+      await DeviceFacade.setPlug(device.id, on ? 'ON' : 'OFF');
       _reload();
     } on ApiException catch (e) {
       if (mounted) {
