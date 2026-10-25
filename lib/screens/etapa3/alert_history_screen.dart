@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../models/client_models.dart';
-import '../../services/api_client.dart';
-import '../../services/client_api.dart';
+import '../../contexts/alerts/application/alert_facade.dart';
+import '../../contexts/alerts/domain/client_alert.dart';
+import '../../core/http/api_client.dart';
+import '../../services/app_i18n.dart';
 import 'etapa3_components.dart';
 
 class AlertHistoryScreen extends StatefulWidget {
@@ -18,21 +19,21 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
   @override
   void initState() {
     super.initState();
-    _future = ClientApi.alerts();
+    _future = AlertFacade.all();
   }
 
   void _reload() {
-    setState(() => _future = ClientApi.alerts());
+    setState(() => _future = AlertFacade.all());
   }
 
   @override
   Widget build(BuildContext context) {
     return Etapa3Shell(
-      title: 'Alert History',
-      subtitle: 'Review exposure events and status changes',
-      selectedIndex: 2,
+      title: tr('al_title'),
+      subtitle: tr('al_subtitle'),
+      selectedIndex: 3,
       trailing: IconButton(
-        tooltip: 'Refresh',
+        tooltip: tr('common_refresh'),
         onPressed: _reload,
         style: IconButton.styleFrom(
           backgroundColor: Etapa3Palette.panel,
@@ -51,7 +52,7 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
           if (snapshot.hasError) {
             final msg = snapshot.error is ApiException
                 ? (snapshot.error as ApiException).message
-                : 'Could not load alerts.';
+                : tr('al_errLoad');
             return Etapa3Error(message: msg, onRetry: _reload);
           }
           return _buildList(snapshot.data!);
@@ -69,19 +70,19 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
       children: [
         _AlertSummary(total: alerts.length, high: high, medium: medium),
         const SizedBox(height: 18),
-        const SectionLabel('EVENTS'),
+        SectionLabel(tr('al_events')),
         const SizedBox(height: 10),
         if (alerts.isEmpty)
-          const GlassPanel(
+          GlassPanel(
             child: Row(
               children: [
-                Icon(Icons.check_circle_outline,
+                const Icon(Icons.check_circle_outline,
                     color: Etapa3Palette.green, size: 22),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'No alerts. All your sensors are within the safe range.',
-                    style: TextStyle(
+                    tr('al_empty'),
+                    style: const TextStyle(
                       color: Etapa3Palette.muted,
                       fontSize: 13,
                       height: 1.4,
@@ -146,7 +147,7 @@ class _AlertSummary extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$total event${total == 1 ? '' : 's'} logged',
+                      '$total ${tr('al_eventsLogged')}',
                       style: const TextStyle(
                         color: Etapa3Palette.text,
                         fontSize: 22,
@@ -156,8 +157,8 @@ class _AlertSummary extends StatelessWidget {
                     const SizedBox(height: 5),
                     Text(
                       hasHigh
-                          ? '$high high priority alert${high == 1 ? '' : 's'} need review.'
-                          : 'No high priority alerts right now.',
+                          ? '$high ${tr('al_highNeedReview')}'
+                          : tr('al_noHigh'),
                       style: const TextStyle(
                         color: Etapa3Palette.muted,
                         fontSize: 13,
@@ -174,7 +175,7 @@ class _AlertSummary extends StatelessWidget {
             children: [
               Expanded(
                 child: _SummaryStat(
-                  label: 'High',
+                  label: tr('al_high'),
                   value: high.toString().padLeft(2, '0'),
                   color: Etapa3Palette.red,
                 ),
@@ -182,7 +183,7 @@ class _AlertSummary extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: _SummaryStat(
-                  label: 'Medium',
+                  label: tr('al_medium'),
                   value: medium.toString().padLeft(2, '0'),
                   color: Etapa3Palette.amber,
                 ),
@@ -190,7 +191,7 @@ class _AlertSummary extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: _SummaryStat(
-                  label: 'Total',
+                  label: tr('al_total'),
                   value: total.toString().padLeft(2, '0'),
                   color: Etapa3Palette.cyan,
                 ),
@@ -296,7 +297,7 @@ class _AlertCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      alert.time ?? '',
+                      etapa3TimeAgo(alert.recordedAt, fallbackDate: alert.time),
                       style: const TextStyle(
                         color: Etapa3Palette.quiet,
                         fontSize: 11,

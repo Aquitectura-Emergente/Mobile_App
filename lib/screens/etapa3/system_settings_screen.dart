@@ -1,10 +1,21 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
-import '../../models/client_models.dart';
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../contexts/iam/domain/client_profile.dart';
+import '../../contexts/iam/infrastructure/session_store.dart';
+import '../../contexts/iottelemetry/application/device_facade.dart';
+import '../../contexts/iottelemetry/domain/client_device.dart';
+import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
+import '../../core/http/api_client.dart';
 import '../../routes/etapa2_routes.dart';
-import '../../services/api_client.dart';
-import '../../services/client_api.dart';
-import '../../services/session_store.dart';
+import '../../services/app_i18n.dart';
+import '../../services/app_settings_store.dart';
+import 'change_password_screen.dart';
+import 'edit_profile_screen.dart';
 import 'etapa3_components.dart';
 
 class _SettingsData {
@@ -21,11 +32,10 @@ class SystemSettingsScreen extends StatefulWidget {
 }
 
 class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
-  bool pushAlerts = true;
-  bool autoCalibrate = true;
-  bool cloudSync = false;
+  bool pushAlerts = AppSettingsStore.pushAlerts;
 
   late Future<_SettingsData> _future;
+  bool _busy = false;
 
   @override
   void initState() {
@@ -34,13 +44,18 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   }
 
   Future<_SettingsData> _load() async {
-    final profile = await ClientApi.profile();
-    final devices = await ClientApi.devices();
+    final profile = await AuthFacade.profile();
+    final devices = await DeviceFacade.all();
     return _SettingsData(profile, devices);
   }
 
   void _reload() {
     setState(() => _future = _load());
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _signOut() async {
@@ -50,106 +65,310 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
         .pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Etapa3Shell(
-      title: 'Settings',
-      subtitle: 'System preferences and sensor controls',
-      selectedIndex: 3,
-      trailing: const StatusPill(
-        label: 'SYNC OK',
-        color: Etapa3Palette.green,
-        icon: Icons.cloud_done_outlined,
+  Future<void> _openSubPage(Widget page) async {
+    final changed = await Navigator.of(context)
+        .push<bool>(MaterialPageRoute(builder: (_) => page));
+    if (changed == true) _reload();
+  }
+
+  Future<void> _exportCsv() async {
+    setState(() => _busy = true);
+    try {
+      final readings = await MonitoringFacade.allReadings();
+      if (readings.isEmpty) {
+        _toast(tr('set_exportEmpty'));
+        return;
+      }
+      final buf = StringBuffer('id,device,value_uT,level,date\n');
+      for (final r in readings) {
+        final device = (r.deviceName ?? '').replaceAll('"', '""');
+        buf.writeln(
+            '${r.id},"$device",${r.value ?? ''},${r.level ?? ''},${r.readingDate ?? ''}');
+      }
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/emsafe_readings.csv');
+      await file.writeAsString(buf.toString());
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(file.path)], text: 'EMSafe readings (µT)'),
+      );
+    } on ApiException catch (e) {
+      _toast(e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showDeviceInfo(List<ClientDevice> devices) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Etapa3Palette.panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
       ),
-      child: FutureBuilder<_SettingsData>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Etapa3Loading();
-          }
-          if (snapshot.hasError) {
-            final msg = snapshot.error is ApiException
-                ? (snapshot.error as ApiException).message
-                : 'Could not load settings.';
-            return Etapa3Error(message: msg, onRetry: _reload);
-          }
-          return _buildBody(snapshot.data!);
-        },
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr('set_deviceInfo'),
+                style: const TextStyle(
+                  color: Etapa3Palette.text,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (devices.isEmpty)
+                Text(
+                  tr('set_noSensors'),
+                  style: const TextStyle(
+                      color: Etapa3Palette.muted, fontSize: 13),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: devices.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(color: Etapa3Palette.stroke, height: 18),
+                    itemBuilder: (context, i) {
+                      final d = devices[i];
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            d.name,
+                            style: const TextStyle(
+                              color: Etapa3Palette.text,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            '${tr('set_serial')}: ${d.serialNumber ?? '--'}'
+                            '  ·  ${tr('set_type')}: ${d.type}\n'
+                            '${tr('set_installed')}: ${d.installDate ?? '--'}'
+                            '  ·  ${tr('set_status')}: ${d.status}',
+                            style: const TextStyle(
+                              color: Etapa3Palette.muted,
+                              fontSize: 12,
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildBody(_SettingsData data) {
+  Future<void> _confirmDeleteAccount() async {
+    final pw = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Etapa3Palette.panel,
+        title: Text(
+          tr('del_title'),
+          style: const TextStyle(
+              color: Etapa3Palette.red, fontWeight: FontWeight.w900),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              tr('del_warning'),
+              style: const TextStyle(
+                  color: Etapa3Palette.muted, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: pw,
+              obscureText: true,
+              style: const TextStyle(color: Etapa3Palette.text),
+              decoration: InputDecoration(
+                hintText: tr('del_confirmPw'),
+                hintStyle: const TextStyle(
+                    color: Etapa3Palette.quiet, fontSize: 13),
+                enabledBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: Etapa3Palette.stroke),
+                ),
+                focusedBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: Etapa3Palette.red),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(tr('common_cancel'),
+                style: const TextStyle(color: Etapa3Palette.muted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(tr('del_button'),
+                style: const TextStyle(
+                    color: Etapa3Palette.red, fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || pw.text.isEmpty) return;
+
+    setState(() => _busy = true);
+    try {
+      await AuthFacade.deleteAccount(pw.text);
+      if (!mounted) return;
+      _toast(tr('del_done'));
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
+    } on ApiException catch (e) {
+      _toast(e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_SettingsData>(
+      future: _future,
+      builder: (context, snapshot) {
+        // Honest sync pill: green when the backend answered, red when it failed.
+        final Widget? pill = snapshot.connectionState == ConnectionState.waiting
+            ? null
+            : snapshot.hasError
+                ? StatusPill(
+                    label: tr('set_offline'),
+                    color: Etapa3Palette.red,
+                    icon: Icons.cloud_off_outlined,
+                  )
+                : StatusPill(
+                    label: tr('set_syncOk'),
+                    color: Etapa3Palette.green,
+                    icon: Icons.cloud_done_outlined,
+                  );
+
+        return Etapa3Shell(
+          title: tr('set_title'),
+          subtitle: tr('set_subtitle'),
+          selectedIndex: 4,
+          trailing: pill,
+          child: _buildBody(snapshot),
+        );
+      },
+    );
+  }
+
+  Widget _buildBody(AsyncSnapshot<_SettingsData> snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return const Etapa3Loading();
+    }
+    if (snapshot.hasError) {
+      final msg = snapshot.error is ApiException
+          ? (snapshot.error as ApiException).message
+          : tr('set_errLoad');
+      return Etapa3Error(message: msg, onRetry: _reload);
+    }
+    final data = snapshot.data!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _ProfileCard(profile: data.profile, deviceCount: data.devices.length),
         const SizedBox(height: 20),
-        const SectionLabel('PREFERENCES'),
+        SectionLabel(tr('set_preferences')),
         const SizedBox(height: 10),
         _SettingsSwitch(
           icon: Icons.notifications_active_outlined,
-          title: 'Push alerts',
-          subtitle: 'Notify when exposure changes abruptly',
+          title: tr('set_push'),
+          subtitle: tr('set_pushSub'),
           value: pushAlerts,
-          onChanged: (value) => setState(() => pushAlerts = value),
+          onChanged: (value) {
+            AppSettingsStore.pushAlerts = value;
+            setState(() => pushAlerts = value);
+          },
         ),
         const SizedBox(height: 10),
         _SettingsSwitch(
-          icon: Icons.auto_fix_high_outlined,
-          title: 'Auto calibration',
-          subtitle: 'Refresh sensor baseline overnight',
-          value: autoCalibrate,
-          onChanged: (value) => setState(() => autoCalibrate = value),
-        ),
-        const SizedBox(height: 10),
-        _SettingsSwitch(
-          icon: Icons.cloud_sync_outlined,
-          title: 'Cloud sync',
-          subtitle: 'Back up readings and room profiles',
-          value: cloudSync,
-          onChanged: (value) => setState(() => cloudSync = value),
+          icon: Icons.translate,
+          title: tr('set_language'),
+          subtitle: tr('set_langSub'),
+          value: I18n.lang.value == 'es',
+          onChanged: (value) {
+            I18n.set(value ? 'es' : 'en');
+            setState(() {});
+          },
         ),
         const SizedBox(height: 20),
-        const SectionLabel('SENSORS'),
-        const SizedBox(height: 10),
-        if (data.devices.isEmpty)
-          const GlassPanel(
-            child: Text(
-              'No sensors assigned to your account yet.',
-              style: TextStyle(color: Etapa3Palette.muted, fontSize: 13),
-            ),
-          )
-        else
-          for (final device in data.devices) ...[
-            _DeviceTile(device: device),
-            const SizedBox(height: 10),
-          ],
-        const SizedBox(height: 20),
-        const SectionLabel('MAINTENANCE'),
+        SectionLabel(tr('set_account')),
         const SizedBox(height: 10),
         GlassPanel(
           padding: const EdgeInsets.all(8),
           child: Column(
             children: [
-              const _ActionRow(
-                icon: Icons.system_update_alt,
-                title: 'Firmware updates',
-                subtitle: 'Version 2.1.4 installed',
+              _ActionRow(
+                icon: Icons.person_outline,
+                title: tr('set_editProfile'),
+                subtitle: tr('set_editProfileSub'),
+                onTap: () => _openSubPage(const EditProfileScreen()),
               ),
               const Divider(color: Etapa3Palette.stroke, height: 1),
-              const _ActionRow(
+              _ActionRow(
+                icon: Icons.lock_outline,
+                title: tr('set_changePw'),
+                subtitle: tr('set_changePwSub'),
+                onTap: () => _openSubPage(const ChangePasswordScreen()),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        SectionLabel(tr('set_maintenance')),
+        const SizedBox(height: 10),
+        GlassPanel(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            children: [
+              _ActionRow(
+                icon: Icons.memory_outlined,
+                title: tr('set_deviceInfo'),
+                subtitle: tr('set_deviceInfoSub'),
+                onTap: () => _showDeviceInfo(data.devices),
+              ),
+              const Divider(color: Etapa3Palette.stroke, height: 1),
+              _ActionRow(
                 icon: Icons.history_toggle_off,
-                title: 'Export data history',
-                subtitle: 'Download readings as CSV',
+                title: tr('set_export'),
+                subtitle: tr('set_exportSub'),
+                onTap: _busy ? null : _exportCsv,
               ),
               const Divider(color: Etapa3Palette.stroke, height: 1),
               _ActionRow(
                 icon: Icons.logout,
-                title: 'Sign out',
-                subtitle: 'End this secure session',
+                title: tr('set_signOut'),
+                subtitle: tr('set_signOutSub'),
                 destructive: true,
                 onTap: _signOut,
+              ),
+              const Divider(color: Etapa3Palette.stroke, height: 1),
+              _ActionRow(
+                icon: Icons.delete_forever_outlined,
+                title: tr('set_deleteAccount'),
+                subtitle: tr('set_deleteAccountSub'),
+                destructive: true,
+                onTap: _busy ? null : _confirmDeleteAccount,
               ),
             ],
           ),
@@ -167,6 +386,8 @@ class _ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sensorsWord =
+        deviceCount == 1 ? tr('set_sensor') : tr('set_sensors_lc');
     return GlassPanel(
       padding: const EdgeInsets.all(18),
       child: Row(
@@ -199,7 +420,7 @@ class _ProfileCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  profile.name.isEmpty ? 'My account' : profile.name,
+                  profile.name.isEmpty ? tr('set_myAccount') : profile.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -210,7 +431,7 @@ class _ProfileCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '$deviceCount sensor${deviceCount == 1 ? '' : 's'} monitored'
+                  '$deviceCount $sensorsWord ${tr('set_monitored')}'
                   '${profile.address != null ? ' · ${profile.address}' : ''}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -298,59 +519,6 @@ class _SettingsSwitch extends StatelessWidget {
   }
 }
 
-class _DeviceTile extends StatelessWidget {
-  const _DeviceTile({required this.device});
-
-  final ClientDevice device;
-
-  @override
-  Widget build(BuildContext context) {
-    final active = device.status.toLowerCase() == 'active';
-    final color = active ? Etapa3Palette.green : Etapa3Palette.amber;
-    return GlassPanel(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Icon(Icons.sensors, color: color, size: 24),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  device.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  active ? 'Online' : device.status,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          StatusPill(
-            label: device.latestValue != null
-                ? '${etapa3Num(device.latestValue)} $etapa3Unit'
-                : '--',
-            color: etapa3LevelColor(device.latestLevel),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ActionRow extends StatelessWidget {
   const _ActionRow({
     required this.icon,
@@ -370,7 +538,7 @@ class _ActionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = destructive ? Etapa3Palette.red : Etapa3Palette.blue;
     return InkWell(
-      onTap: onTap ?? () {},
+      onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.all(12),

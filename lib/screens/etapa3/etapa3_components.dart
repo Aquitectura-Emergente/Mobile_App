@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../routes/etapa3_routes.dart';
+import '../../services/app_i18n.dart';
 
 class Etapa3Palette {
   static const bg = Color(0xFF10131B);
@@ -53,8 +54,49 @@ String etapa3Num(double? value, {int decimals = 2}) {
   return value.toStringAsFixed(decimals);
 }
 
-/// Unit shown next to radiation values across the app.
-const String etapa3Unit = 'µT/m²';
+/// Parses a backend ISO timestamp (LocalDateTime, no zone) as a local DateTime.
+DateTime? etapa3ParseTime(String? iso) {
+  if (iso == null || iso.isEmpty) return null;
+  return DateTime.tryParse(iso)?.toLocal();
+}
+
+/// Local time-of-day for an ISO timestamp, e.g. "14:37". Falls back to
+/// [fallbackDate] (a plain date string) when no timestamp is available.
+String etapa3TimeOfDay(String? iso, {String? fallbackDate}) {
+  final dt = etapa3ParseTime(iso);
+  if (dt == null) return fallbackDate ?? '--';
+  final h = dt.hour.toString().padLeft(2, '0');
+  final m = dt.minute.toString().padLeft(2, '0');
+  return '$h:$m';
+}
+
+/// Human "time ago" for an ISO timestamp: "ahora mismo", "hace 36 min",
+/// "hace 2 h", "hace 3 d" (localized). Falls back to [fallbackDate].
+String etapa3TimeAgo(String? iso, {String? fallbackDate}) {
+  final dt = etapa3ParseTime(iso);
+  if (dt == null) return fallbackDate ?? '--';
+  final diff = DateTime.now().difference(dt);
+  if (diff.inSeconds < 60) return tr('time_justNow');
+  final String n;
+  final String u;
+  if (diff.inMinutes < 60) {
+    n = '${diff.inMinutes}';
+    u = 'min';
+  } else if (diff.inHours < 24) {
+    n = '${diff.inHours}';
+    u = 'h';
+  } else {
+    n = '${diff.inDays}';
+    u = 'd';
+  }
+  return tr('time_ago_fmt').replaceAll('{n}', n).replaceAll('{u}', u);
+}
+
+/// Unit shown next to radiation values across the app (microtesla, magnetic field).
+const String etapa3Unit = 'µT';
+
+/// Safe limit in µT (danger threshold, ICNIRP 50 Hz reference — same as backend/edge).
+const double etapa3SafetyThreshold = 200;
 
 /// Centered loading spinner used inside Etapa3Shell while data loads.
 class Etapa3Loading extends StatelessWidget {
@@ -149,7 +191,6 @@ class Etapa3Shell extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
                       child: _StageHeader(
                         title: title,
-                        subtitle: subtitle,
                         trailing: trailing,
                       ),
                     ),
@@ -175,12 +216,10 @@ class Etapa3Shell extends StatelessWidget {
 class _StageHeader extends StatelessWidget {
   const _StageHeader({
     required this.title,
-    required this.subtitle,
     this.trailing,
   });
 
   final String title;
-  final String subtitle;
   final Widget? trailing;
 
   @override
@@ -203,32 +242,17 @@ class _StageHeader extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Etapa3Palette.text,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  height: 1.1,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Etapa3Palette.quiet,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
+          // Header shows only the title — subtitle descriptions were removed app-wide.
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Etapa3Palette.text,
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              height: 1.1,
+            ),
           ),
         ),
         if (trailing != null) ...[const SizedBox(width: 12), trailing!],
@@ -395,14 +419,15 @@ class Stage3BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      (Icons.dashboard_outlined, 'Home', Etapa3Routes.dashboardOverview),
+      (Icons.dashboard_outlined, tr('nav_home'), Etapa3Routes.dashboardOverview),
+      (Icons.sensors, tr('nav_monitor'), Etapa3Routes.monitor),
       (
         Icons.monitor_heart_outlined,
-        'Monitor',
+        tr('nav_vitals'),
         Etapa3Routes.sensorMonitoringDetail,
       ),
-      (Icons.notifications_none, 'Alerts', Etapa3Routes.alertHistory),
-      (Icons.settings_outlined, 'Settings', Etapa3Routes.systemSettings),
+      (Icons.notifications_none, tr('nav_alerts'), Etapa3Routes.alertHistory),
+      (Icons.settings_outlined, tr('nav_settings'), Etapa3Routes.systemSettings),
     ];
 
     return ClipRRect(
@@ -425,7 +450,15 @@ class Stage3BottomNav extends StatelessWidget {
                   selected: selectedIndex == index,
                   onTap: () {
                     if (selectedIndex == index) return;
-                    Navigator.of(context).pushReplacementNamed(items[index].$3);
+                    final route = items[index].$3;
+                    final builder = Etapa3Routes.routes[route]!;
+                    // Instant swap (no slide) between tabs.
+                    Navigator.of(context).pushReplacement(PageRouteBuilder(
+                      settings: RouteSettings(name: route),
+                      pageBuilder: (ctx, _, _) => builder(ctx),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
+                    ));
                   },
                 ),
             ],

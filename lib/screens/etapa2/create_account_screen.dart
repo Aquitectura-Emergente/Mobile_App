@@ -2,8 +2,9 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../../routes/app_routes.dart';
 import '../../routes/etapa2_routes.dart';
+import '../../contexts/iam/application/auth_facade.dart';
+import '../../core/http/api_client.dart';
 import '../../services/onboarding_flow_store.dart';
 
 class CreateAccountScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   final _formKey = GlobalKey<FormState>();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -25,15 +27,65 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     super.dispose();
   }
 
+  /// Real sign-up against POST /api/auth/register. The account is created in
+  /// "pending" state — an EMSafe admin must activate it before the first login.
   Future<void> _submit() async {
     final isValid = _formKey.currentState?.validate() ?? false;
-    if (!isValid) return;
+    if (!isValid || _submitting) return;
 
-    await OnboardingFlowStore.markAccountCreated();
-    if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(AppRoutes.pairingSensors, (route) => false);
+    final draft = OnboardingFlowStore.personalDetailsDraft;
+    if (draft == null) return;
+
+    setState(() => _submitting = true);
+    try {
+      await AuthFacade.register(
+        name: draft.displayName,
+        email: draft.email,
+        password: _passwordController.text,
+        phone: draft.phone,
+        address: [draft.address, draft.city, draft.country]
+            .where((s) => s.trim().isNotEmpty)
+            .join(', '),
+        clientType: draft.clientTypeValue,
+        contactName: draft.contactName,
+        taxId: draft.documentId,
+        industry: draft.industry,
+      );
+      await OnboardingFlowStore.markAccountCreated();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1D1F28),
+          title: const Text(
+            'Account created',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+          ),
+          content: const Text(
+            'Your account was created and is pending approval. An EMSafe '
+            'administrator will activate it shortly — then you can sign in.',
+            style: TextStyle(color: Color(0xFFC2C6D8), height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK',
+                  style: TextStyle(color: Color(0xFF65DAFF))),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override

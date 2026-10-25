@@ -70,6 +70,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
       industry: _clientType == ClientType.company
           ? _industryController.text.trim()
           : null,
+      contactName: _contactNameController.text.trim(),
     );
 
     OnboardingFlowStore.personalDetailsDraft = draft;

@@ -14,6 +14,7 @@ class PersonalDetailsDraft {
     this.documentId,
     this.companyName,
     this.industry,
+    this.contactName,
   });
 
   final ClientType clientType;
@@ -26,6 +27,11 @@ class PersonalDetailsDraft {
   final String? documentId;
   final String? companyName;
   final String? industry;
+  final String? contactName;
+
+  /// Backend clientType value ('company' | 'individual').
+  String get clientTypeValue =>
+      clientType == ClientType.company ? 'company' : 'individual';
 
   String get clientTypeLabel =>
       clientType == ClientType.company ? 'Company' : 'Individual';

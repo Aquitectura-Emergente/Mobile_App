@@ -37,6 +37,12 @@ dependencies:
   shared_preferences: ^2.5.5
   local_auth: ^3.0.1
   http: ^1.2.2
+  share_plus: ^13.2.0
+  path_provider: ^2.1.6
+  stomp_dart_client: ^3.0.1
+  flutter_local_notifications: ^22.0.1
+  flutter_map: ^8.3.1
+  latlong2: ^0.10.1
 
 dev_dependencies:
   flutter_test:
@@ -48,6 +54,16 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# Launcher icon (assets/icon/*.png are design sources, not runtime assets).
+# Regenerate with: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon/emsafe_icon.png
+  adaptive_icon_background: "#10131B"
+  adaptive_icon_foreground: assets/icon/emsafe_icon_fg.png
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

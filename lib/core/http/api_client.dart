@@ -2,8 +2,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../config/api_config.dart';
-import 'session_store.dart';
+import '../../config/api_config.dart';
+import '../../contexts/iam/infrastructure/session_store.dart';
+import '../../routes/etapa2_routes.dart';
+import '../../services/app_navigator.dart';
 
 /// Thrown when a request fails. Carries a user-friendly message and (when known)
 /// the HTTP status code.
@@ -22,6 +24,19 @@ class ApiException implements Exception {
 /// `{ success, message, data }` envelope used by the Spring Boot API.
 class ApiClient {
   static const Duration _timeout = Duration(seconds: 20);
+  static bool _signingOut = false;
+
+  /// Clears the session and bounces to login. Called when the backend reports
+  /// the token is no longer valid (401 — expired, or the account was
+  /// deactivated/deleted from the web). Guarded so concurrent 401s bounce once.
+  static Future<void> _forceSignOut() async {
+    if (_signingOut) return;
+    _signingOut = true;
+    await SessionStore.clear();
+    appNavigatorKey.currentState
+        ?.pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
+    _signingOut = false;
+  }
 
   static Map<String, String> _headers({bool auth = true}) {
     final headers = <String, String>{
@@ -91,9 +106,15 @@ class ApiClient {
       return decoded;
     }
 
-    if (res.statusCode == 401 || res.statusCode == 403) {
-      throw ApiException('Session expired or not authorized. Please sign in again.',
-          statusCode: res.statusCode);
+    if (res.statusCode == 401) {
+      // Token invalid/expired or the account was deactivated/deleted → sign out.
+      _forceSignOut();
+      throw ApiException('Session expired. Please sign in again.',
+          statusCode: 401);
+    }
+    if (res.statusCode == 403) {
+      throw ApiException('You are not authorized to perform this action.',
+          statusCode: 403);
     }
 
     final message = decoded is Map && decoded['message'] != null

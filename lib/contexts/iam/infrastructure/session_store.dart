@@ -46,6 +46,12 @@ class SessionStore {
   static Future<String> email() async =>
       (await SharedPreferences.getInstance()).getString(_emailKey) ?? '';
 
+  /// The authenticated user's id — matches the `clientId` carried by every
+  /// [ReadingDto] over the WebSocket, so the app can subscribe only to its own
+  /// readings (`/topic/clients/{userId}/readings`). Null if not stored yet.
+  static Future<int?> userId() async =>
+      (await SharedPreferences.getInstance()).getInt(_userIdKey);
+
   static Future<void> clear() async {
     _token = null;
     final prefs = await SharedPreferences.getInstance();
