@@ -9,6 +9,7 @@ class SessionStore {
   static const _emailKey = 'emsafe_email';
   static const _roleKey = 'emsafe_role';
   static const _userIdKey = 'emsafe_user_id';
+  static const _segmentKey = 'emsafe_segment';
 
   static String? _token;
   static String? get token => _token;
@@ -52,6 +53,16 @@ class SessionStore {
   static Future<int?> userId() async =>
       (await SharedPreferences.getInstance()).getInt(_userIdKey);
 
+  static Future<String> role() async =>
+      (await SharedPreferences.getInstance()).getString(_roleKey) ?? '';
+
+  /// Segmento detectado al entrar (`home` | `operator`), o null si no se sabe.
+  static Future<String?> segment() async =>
+      (await SharedPreferences.getInstance()).getString(_segmentKey);
+
+  static Future<void> saveSegment(String segment) async =>
+      (await SharedPreferences.getInstance()).setString(_segmentKey, segment);
+
   static Future<void> clear() async {
     _token = null;
     final prefs = await SharedPreferences.getInstance();
@@ -60,5 +71,6 @@ class SessionStore {
     await prefs.remove(_emailKey);
     await prefs.remove(_roleKey);
     await prefs.remove(_userIdKey);
+    await prefs.remove(_segmentKey);
   }
 }
