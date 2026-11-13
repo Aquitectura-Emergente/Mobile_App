@@ -70,9 +70,20 @@ class SessionStore {
     await (await SharedPreferences.getInstance()).setString(_segmentKey, segment);
   }
 
+  static final List<void Function()> _clearListeners = [];
+
+  /// Avisa cuando se cierra la sesión (salida, 401 o cuenta borrada), para que
+  /// otros contextos suelten lo que tengan abierto a nombre de la cuenta.
+  static void addClearListener(void Function() listener) {
+    if (!_clearListeners.contains(listener)) _clearListeners.add(listener);
+  }
+
   static Future<void> clear() async {
     _token = null;
     _segment = null;
+    for (final listener in List.of(_clearListeners)) {
+      listener();
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
     await prefs.remove(_nameKey);

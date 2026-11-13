@@ -49,6 +49,11 @@ class RealtimeService {
   static bool _activating = false;
 
   static Future<void> ensureConnected() async {
+    SessionStore.addClearListener(disconnect);
+    final userId = await SessionStore.userId();
+    if (needsNewConnection(connectedUserId: _userId, currentUserId: userId)) {
+      disconnect();
+    }
     final existing = _client;
     if (existing != null) {
       // Reuse a live connection. If stomp's own auto-reconnect ever gives up
@@ -78,9 +83,16 @@ class RealtimeService {
     }
   }
 
+  /// Una conexión abierta para otra cuenta no se reutiliza.
+  static bool needsNewConnection({int? connectedUserId, int? currentUserId}) =>
+      connectedUserId != null && connectedUserId != currentUserId;
+
   static void disconnect() {
     _client?.deactivate();
     _client = null;
+    _userId = null;
+    lastReading = null;
+    dangerReading.value = null;
     _dangerHandled.clear();
   }
 
