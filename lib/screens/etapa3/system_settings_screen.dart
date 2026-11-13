@@ -341,20 +341,23 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
           padding: const EdgeInsets.all(8),
           child: Column(
             children: [
-              _ActionRow(
-                icon: Icons.memory_outlined,
-                title: tr('set_deviceInfo'),
-                subtitle: tr('set_deviceInfoSub'),
-                onTap: () => _showDeviceInfo(data.devices),
-              ),
-              const Divider(color: Etapa3Palette.stroke, height: 1),
-              _ActionRow(
-                icon: Icons.history_toggle_off,
-                title: tr('set_export'),
-                subtitle: tr('set_exportSub'),
-                onTap: _busy ? null : _exportCsv,
-              ),
-              const Divider(color: Etapa3Palette.stroke, height: 1),
+              // Sensores y exportación son del hogar.
+              if (!SessionStore.isOperator) ...[
+                _ActionRow(
+                  icon: Icons.memory_outlined,
+                  title: tr('set_deviceInfo'),
+                  subtitle: tr('set_deviceInfoSub'),
+                  onTap: () => _showDeviceInfo(data.devices),
+                ),
+                const Divider(color: Etapa3Palette.stroke, height: 1),
+                _ActionRow(
+                  icon: Icons.history_toggle_off,
+                  title: tr('set_export'),
+                  subtitle: tr('set_exportSub'),
+                  onTap: _busy ? null : _exportCsv,
+                ),
+                const Divider(color: Etapa3Palette.stroke, height: 1),
+              ],
               _ActionRow(
                 icon: Icons.logout,
                 title: tr('set_signOut'),

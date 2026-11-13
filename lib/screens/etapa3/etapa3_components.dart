@@ -2,7 +2,9 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../contexts/iam/infrastructure/session_store.dart';
 import '../../routes/etapa3_routes.dart';
+import '../../routes/operator_routes.dart';
 import '../../services/app_i18n.dart';
 
 class Etapa3Palette {
@@ -418,7 +420,20 @@ class Stage3BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
+    final items = SessionStore.isOperator ? _operatorItems() : _homeItems();
+    return _buildBar(context, items);
+  }
+
+  // El operario no tiene sensores ni enchufe: su barra es de exposición.
+  static List<(IconData, String, String)> _operatorItems() => [
+        (Icons.speed, tr('nav_exposure'), OperatorRoutes.exposure),
+        (Icons.show_chart, tr('nav_shift'), OperatorRoutes.readings),
+        (Icons.history, tr('nav_history'), OperatorRoutes.history),
+        (Icons.notifications_none, tr('nav_alerts'), OperatorRoutes.alerts),
+        (Icons.settings_outlined, tr('nav_settings'), Etapa3Routes.systemSettings),
+      ];
+
+  static List<(IconData, String, String)> _homeItems() => [
       (Icons.dashboard_outlined, tr('nav_home'), Etapa3Routes.dashboardOverview),
       (Icons.sensors, tr('nav_monitor'), Etapa3Routes.monitor),
       (
@@ -430,6 +445,8 @@ class Stage3BottomNav extends StatelessWidget {
       (Icons.settings_outlined, tr('nav_settings'), Etapa3Routes.systemSettings),
     ];
 
+  Widget _buildBar(
+      BuildContext context, List<(IconData, String, String)> items) {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
       child: BackdropFilter(
@@ -451,7 +468,8 @@ class Stage3BottomNav extends StatelessWidget {
                   onTap: () {
                     if (selectedIndex == index) return;
                     final route = items[index].$3;
-                    final builder = Etapa3Routes.routes[route]!;
+                    final builder = Etapa3Routes.routes[route] ??
+                        OperatorRoutes.routes[route]!;
                     // Instant swap (no slide) between tabs.
                     Navigator.of(context).pushReplacement(PageRouteBuilder(
                       settings: RouteSettings(name: route),

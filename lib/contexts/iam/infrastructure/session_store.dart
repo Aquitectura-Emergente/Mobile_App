@@ -12,7 +12,11 @@ class SessionStore {
   static const _segmentKey = 'emsafe_segment';
 
   static String? _token;
+  static String? _segment;
   static String? get token => _token;
+
+  /// Lectura síncrona del segmento para la navegación (se carga en [load]).
+  static bool get isOperator => _segment == 'operator';
 
   static Future<void> save({
     required String token,
@@ -34,6 +38,7 @@ class SessionStore {
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _token = prefs.getString(_tokenKey);
+    _segment = prefs.getString(_segmentKey);
   }
 
   static Future<bool> isLoggedIn() async {
@@ -60,11 +65,14 @@ class SessionStore {
   static Future<String?> segment() async =>
       (await SharedPreferences.getInstance()).getString(_segmentKey);
 
-  static Future<void> saveSegment(String segment) async =>
-      (await SharedPreferences.getInstance()).setString(_segmentKey, segment);
+  static Future<void> saveSegment(String segment) async {
+    _segment = segment;
+    await (await SharedPreferences.getInstance()).setString(_segmentKey, segment);
+  }
 
   static Future<void> clear() async {
     _token = null;
+    _segment = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
     await prefs.remove(_nameKey);
