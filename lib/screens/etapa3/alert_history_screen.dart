@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../contexts/alerts/application/alert_facade.dart';
+import '../../contexts/alerts/domain/alert_filter.dart';
 import '../../contexts/alerts/domain/client_alert.dart';
+import '../../contexts/devicemanagement/application/device_facade.dart';
+import '../../contexts/devicemanagement/domain/plug_status.dart';
 import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
 import 'etapa3_components.dart';
@@ -15,15 +18,30 @@ class AlertHistoryScreen extends StatefulWidget {
 
 class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
   late Future<List<ClientAlert>> _future;
+  late Future<PlugStatus?> _plug;
+  AlertFilter _filter = const AlertFilter();
 
   @override
   void initState() {
     super.initState();
     _future = AlertFacade.all();
+    _plug = _loadPlug();
+  }
+
+  // El enchufe es opcional: si falla, el historial se muestra igual.
+  Future<PlugStatus?> _loadPlug() async {
+    try {
+      return await DeviceFacade.homePlugStatus();
+    } catch (_) {
+      return null;
+    }
   }
 
   void _reload() {
-    setState(() => _future = AlertFacade.all());
+    setState(() {
+      _future = AlertFacade.all();
+      _plug = _loadPlug();
+    });
   }
 
   @override
@@ -61,7 +79,8 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
     );
   }
 
-  Widget _buildList(List<ClientAlert> alerts) {
+  Widget _buildList(List<ClientAlert> all) {
+    final alerts = _filter.apply(all);
     final high = alerts.where((a) => a.level == 'danger').length;
     final medium = alerts.where((a) => a.level == 'caution').length;
 
@@ -69,9 +88,26 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _AlertSummary(total: alerts.length, high: high, medium: medium),
+        FutureBuilder<PlugStatus?>(
+          future: _plug,
+          builder: (context, snap) {
+            final command = snap.data?.lastCommand;
+            if (command == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 18),
+              child: _PlugActionCard(command: command),
+            );
+          },
+        ),
         const SizedBox(height: 18),
         SectionLabel(tr('al_events')),
         const SizedBox(height: 10),
+        _FilterBar(
+          filter: _filter,
+          devices: AlertFilter.devicesIn(all),
+          onChanged: (f) => setState(() => _filter = f),
+        ),
+        const SizedBox(height: 12),
         if (alerts.isEmpty)
           GlassPanel(
             child: Row(
@@ -81,7 +117,7 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    tr('al_empty'),
+                    tr(_filter.isActive ? 'al_emptyFiltered' : 'al_empty'),
                     style: const TextStyle(
                       color: Etapa3Palette.muted,
                       fontSize: 13,
@@ -332,6 +368,176 @@ class _AlertCard extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Filtros por fecha, nivel y sensor.
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({
+    required this.filter,
+    required this.devices,
+    required this.onChanged,
+  });
+
+  final AlertFilter filter;
+  final Map<int, String> devices;
+  final ValueChanged<AlertFilter> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final periods = {
+      AlertPeriod.all: tr('al_periodAll'),
+      AlertPeriod.today: tr('al_periodToday'),
+      AlertPeriod.week: tr('al_periodWeek'),
+      AlertPeriod.month: tr('al_periodMonth'),
+    };
+    final levels = <String?, String>{
+      null: tr('map_all'),
+      'danger': tr('map_danger'),
+      'caution': tr('map_caution'),
+      'safe': tr('map_safe'),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final e in periods.entries)
+              _Chip(
+                label: e.value,
+                selected: filter.period == e.key,
+                color: Etapa3Palette.cyan,
+                onTap: () => onChanged(filter.copyWith(period: e.key)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final e in levels.entries)
+              _Chip(
+                label: e.value,
+                selected: filter.level == e.key,
+                color: e.key == null
+                    ? Etapa3Palette.cyan
+                    : etapa3LevelColor(e.key),
+                onTap: () => onChanged(filter.copyWith(level: () => e.key)),
+              ),
+          ],
+        ),
+        if (devices.length > 1) ...[
+          const SizedBox(height: 8),
+          DropdownButton<int?>(
+            value: devices.containsKey(filter.deviceId) ? filter.deviceId : null,
+            isExpanded: true,
+            dropdownColor: Etapa3Palette.panel,
+            style: const TextStyle(color: Etapa3Palette.text, fontSize: 13),
+            underline: const SizedBox.shrink(),
+            items: [
+              DropdownMenuItem<int?>(
+                  value: null, child: Text(tr('al_allSensors'))),
+              for (final e in devices.entries)
+                DropdownMenuItem<int?>(value: e.key, child: Text(e.value)),
+            ],
+            onChanged: (id) => onChanged(filter.copyWith(deviceId: () => id)),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.16) : Etapa3Palette.panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color:
+                selected ? color.withValues(alpha: 0.6) : Etapa3Palette.stroke,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? color : Etapa3Palette.muted,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Última orden enviada al enchufe y en qué quedó.
+class _PlugActionCard extends StatelessWidget {
+  const _PlugActionCard({required this.command});
+
+  final PlugCommand command;
+
+  @override
+  Widget build(BuildContext context) {
+    final off = command.action == PlugPower.off;
+    final (statusLabel, color) = command.isConfirmed
+        ? (tr('al_plugConfirmed'), Etapa3Palette.green)
+        : command.hasFailed
+            ? (tr('al_plugFailed'), Etapa3Palette.red)
+            : (tr('plug_pendingBadge'), Etapa3Palette.amber);
+    return GlassPanel(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Icon(Icons.power_settings_new,
+              color: off ? Etapa3Palette.red : Etapa3Palette.green, size: 26),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tr(off ? 'al_plugOff' : 'al_plugOn'),
+                  style: const TextStyle(
+                    color: Etapa3Palette.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  etapa3TimeAgo(command.requestedAt),
+                  style:
+                      const TextStyle(color: Etapa3Palette.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          StatusPill(label: statusLabel, color: color),
         ],
       ),
     );

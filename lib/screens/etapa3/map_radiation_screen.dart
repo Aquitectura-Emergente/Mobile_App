@@ -1,8 +1,13 @@
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../contexts/iam/application/auth_facade.dart';
 import '../../contexts/iam/domain/client_profile.dart';
@@ -19,8 +24,8 @@ class _MapData {
   final List<ClientDevice> devices;
 }
 
-/// Radiation map (US16/US17): the client's site with one marker per sensor,
-/// color-coded by its edge-computed level, plus level filters.
+/// Radiation map: the client's site with one marker per sensor, color-coded
+/// by its level, plus level filters and sharing.
 /// Tiles: OpenStreetMap via flutter_map (no API key).
 class MapRadiationScreen extends StatefulWidget {
   const MapRadiationScreen({super.key});
@@ -33,6 +38,9 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
   late Future<_MapData> _future;
   String _levelFilter = 'all'; // all | safe | caution | danger
   ClientDevice? _selected;
+  _MapData? _data;
+  bool _sharing = false;
+  final _mapKey = GlobalKey();
 
   // Fallback center (Lima) when the client has no registered coordinates.
   static const _limaCenter = LatLng(-12.05, -77.05);
@@ -75,22 +83,76 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
         .toList();
   }
 
+  /// Comparte una captura del mapa con el resumen de niveles.
+  Future<void> _share() async {
+    final data = _data;
+    final boundary =
+        _mapKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (data == null || boundary == null || _sharing) return;
+    setState(() => _sharing = true);
+    try {
+      final image = await boundary.toImage(pixelRatio: 2);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (bytes == null) return;
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/emsafe_map.png');
+      await file.writeAsBytes(bytes.buffer.asUint8List());
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'image/png')],
+          text: _summary(data),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(tr('map_shareError'))));
+      }
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
+  }
+
+  String _summary(_MapData data) {
+    final lines = [
+      tr('map_shareTitle'),
+      for (final d in _filtered(data.devices))
+        '• ${d.name}: ${etapa3LevelLabel(d.latestLevel)}'
+            '${d.latestValue == null ? '' : ' (${etapa3Num(d.latestValue)} $etapa3Unit)'}',
+    ];
+    final p = data.profile;
+    if (p.hasCoordinates) {
+      lines.add(
+        'https://www.openstreetmap.org/?mlat=${p.latitude}&mlon=${p.longitude}#map=17/${p.latitude}/${p.longitude}',
+      );
+    }
+    return lines.join('\n');
+  }
+
   @override
   Widget build(BuildContext context) {
     return SubPageScaffold(
       title: tr('map_title'),
       subtitle: tr('map_subtitle'),
       scrollable: false,
-      trailing: IconButton(
-        tooltip: tr('common_refresh'),
-        onPressed: _reload,
-        style: IconButton.styleFrom(
-          backgroundColor: Etapa3Palette.panel,
-          foregroundColor: Etapa3Palette.blue,
-          side: const BorderSide(color: Etapa3Palette.stroke),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-        icon: const Icon(Icons.refresh),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: tr('map_share'),
+            onPressed: _sharing ? null : _share,
+            style: _actionStyle,
+            icon: const Icon(Icons.ios_share),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            tooltip: tr('common_refresh'),
+            onPressed: _reload,
+            style: _actionStyle,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
       child: FutureBuilder<_MapData>(
         future: _future,
@@ -104,6 +166,7 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
                 : tr('map_errLoad');
             return Etapa3Error(message: msg, onRetry: _reload);
           }
+          _data = snapshot.data;
           return _buildMap(snapshot.data!);
         },
       ),
@@ -112,8 +175,8 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
 
   Widget _buildMap(_MapData data) {
     final devices = _filtered(data.devices);
-    final center = (data.profile.latitude != null &&
-            data.profile.longitude != null)
+    final center =
+        (data.profile.latitude != null && data.profile.longitude != null)
         ? LatLng(data.profile.latitude!, data.profile.longitude!)
         : _limaCenter;
 
@@ -156,50 +219,62 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
         ),
         const SizedBox(height: 12),
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: FlutterMap(
-              options: MapOptions(
-                initialCenter: center,
-                initialZoom: 16,
-                onTap: (_, _) => setState(() => _selected = null),
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.emsafe_app',
+          child: RepaintBoundary(
+            key: _mapKey,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: FlutterMap(
+                options: MapOptions(
+                  initialCenter: center,
+                  initialZoom: 16,
+                  onTap: (_, _) => setState(() => _selected = null),
                 ),
-                MarkerLayer(
-                  markers: [
-                    for (var i = 0; i < devices.length; i++)
-                      Marker(
-                        point: _positionFor(
-                            data.profile, data.devices.indexOf(devices[i]),
-                            data.devices.length),
-                        width: 34,
-                        height: 34,
-                        child: GestureDetector(
-                          onTap: () =>
-                              setState(() => _selected = devices[i]),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: etapa3LevelColor(devices[i].latestLevel),
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: Colors.white, width: 3),
-                              boxShadow: const [
-                                BoxShadow(
-                                    color: Colors.black45, blurRadius: 6),
-                              ],
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.emsafe_app',
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      for (var i = 0; i < devices.length; i++)
+                        Marker(
+                          point: _positionFor(
+                            data.profile,
+                            data.devices.indexOf(devices[i]),
+                            data.devices.length,
+                          ),
+                          width: 34,
+                          height: 34,
+                          child: GestureDetector(
+                            onTap: () => setState(() => _selected = devices[i]),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: etapa3LevelColor(devices[i].latestLevel),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 3,
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Colors.black45,
+                                    blurRadius: 6,
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.sensors,
+                                color: Colors.white,
+                                size: 16,
+                              ),
                             ),
-                            child: const Icon(Icons.sensors,
-                                color: Colors.white, size: 16),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -211,8 +286,7 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
           GlassPanel(
             child: Text(
               tr('map_noneForFilter'),
-              style:
-                  const TextStyle(color: Etapa3Palette.muted, fontSize: 13),
+              style: const TextStyle(color: Etapa3Palette.muted, fontSize: 13),
             ),
           ),
         ],
@@ -221,6 +295,13 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
     );
   }
 }
+
+final _actionStyle = IconButton.styleFrom(
+  backgroundColor: Etapa3Palette.panel,
+  foregroundColor: Etapa3Palette.blue,
+  side: const BorderSide(color: Etapa3Palette.stroke),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+);
 
 class _FilterChip extends StatelessWidget {
   const _FilterChip({
@@ -248,7 +329,9 @@ class _FilterChip extends StatelessWidget {
               : Etapa3Palette.panelSoft,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? color.withValues(alpha: 0.55) : Etapa3Palette.stroke,
+            color: selected
+                ? color.withValues(alpha: 0.55)
+                : Etapa3Palette.stroke,
           ),
         ),
         child: Row(

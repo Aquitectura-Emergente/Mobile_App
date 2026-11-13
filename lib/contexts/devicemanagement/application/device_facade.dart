@@ -32,6 +32,12 @@ class DeviceFacade {
         fetch: (c) => PlugApi.command(c.plugId, c.commandId),
       ).track(command);
 
+  /// Estado y última orden del enchufe del hogar; null si no hay enchufe.
+  static Future<PlugStatus?> homePlugStatus() async {
+    final plug = await homePlug();
+    return plug == null ? null : plugStatus(plug);
+  }
+
   /// Estado real del enchufe y su última orden.
   static Future<PlugStatus> plugStatus(ClientDevice plug) =>
       PlugApi.state(plug.serialNumber ?? '');
