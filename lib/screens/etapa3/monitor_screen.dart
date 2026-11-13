@@ -80,20 +80,16 @@ class _MonitorScreenState extends State<MonitorScreen> {
     _reload();
   }
 
-  /// Sends the user's relay order (cut / restore power) to the backend;
-  /// the edge picks it up and drives the physical relay.
+  /// Envía la orden al enchufe y espera la confirmación del Edge.
   Future<void> _setPlug(ClientDevice device, bool on) async {
     setState(() => _plugBusy = true);
     try {
-      await DeviceFacade.setPlug(device.id, on ? 'ON' : 'OFF');
-      _reload();
-    } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
-      }
+      await sendPlugOrder(device, on ? PlugPower.on : PlugPower.off);
     } finally {
-      if (mounted) setState(() => _plugBusy = false);
+      if (mounted) {
+        setState(() => _plugBusy = false);
+        _reload();
+      }
     }
   }
 
@@ -217,14 +213,16 @@ class _MonitorScreenState extends State<MonitorScreen> {
           },
         ),
         const SizedBox(height: 20),
-        SectionLabel(tr('mon_powerControl')),
-        const SizedBox(height: 10),
-        _PlugCard(
-          device: device,
-          busy: _plugBusy,
-          onChanged: (on) => _setPlug(device, on),
-        ),
-        const SizedBox(height: 20),
+        if (device.isPlug) ...[
+          SectionLabel(tr('mon_powerControl')),
+          const SizedBox(height: 10),
+          _PlugCard(
+            device: device,
+            busy: _plugBusy,
+            onChanged: (on) => _setPlug(device, on),
+          ),
+          const SizedBox(height: 20),
+        ],
         SectionLabel(tr('mon_signalTrend')),
         const SizedBox(height: 10),
         _TrendCard(readings: readings),
@@ -405,8 +403,8 @@ class _SensorHero extends StatelessWidget {
   }
 }
 
-/// Smart-plug relay control: shows the state reported by the device and lets
-/// the user order the relay to open (cut power) or close (restore power).
+/// Control del enchufe: muestra el estado real que informó el Edge y, si hay
+/// una orden sin confirmar, la marca como pendiente.
 class _PlugCard extends StatelessWidget {
   const _PlugCard({
     required this.device,
@@ -420,11 +418,13 @@ class _PlugCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // What the user ordered (falls back to what the device reports).
-    final desired = (device.desiredPlug ?? device.plug ?? 'ON').toUpperCase();
-    final isOn = desired == 'ON';
-    final color = isOn ? Etapa3Palette.green : Etapa3Palette.red;
-    final reported = device.plug?.toUpperCase();
+    final real = device.realPlug;
+    final isOn = real != PlugPower.off;
+    final color = real == null
+        ? Etapa3Palette.muted
+        : (isOn ? Etapa3Palette.green : Etapa3Palette.red);
+    final pending = device.pendingPlug;
+    final waiting = busy || pending != null;
 
     return GlassPanel(
       padding: const EdgeInsets.all(16),
@@ -445,19 +445,31 @@ class _PlugCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  isOn ? tr('mon_powerOn') : tr('mon_powerOff'),
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        real == null
+                            ? tr('mon_noData')
+                            : (isOn ? tr('mon_powerOn') : tr('mon_powerOff')),
+                        style: const TextStyle(
+                          color: Etapa3Palette.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (pending != null) ...[
+                      const SizedBox(width: 8),
+                      _PendingBadge(action: pending),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  reported == null
-                      ? tr('mon_noRelayState')
-                      : '${tr('mon_relayReports')} $reported. ${tr('mon_relayToggleHint')}',
+                  real == null
+                      ? tr('plug_unknown')
+                      : '${tr('mon_relayReports')}: $real. ${tr('mon_relayToggleHint')}',
                   style: const TextStyle(
                     color: Etapa3Palette.muted,
                     fontSize: 12,
@@ -468,7 +480,7 @@ class _PlugCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          busy
+          waiting
               ? const SizedBox(
                   width: 24,
                   height: 24,
@@ -485,6 +497,33 @@ class _PlugCard extends StatelessWidget {
                   onChanged: onChanged,
                 ),
         ],
+      ),
+    );
+  }
+}
+
+class _PendingBadge extends StatelessWidget {
+  const _PendingBadge({required this.action});
+
+  final String action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Etapa3Palette.amber.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Etapa3Palette.amber.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        '${tr('plug_pendingBadge')} · $action',
+        style: const TextStyle(
+          color: Etapa3Palette.amber,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.6,
+        ),
       ),
     );
   }

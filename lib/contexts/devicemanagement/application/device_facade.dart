@@ -13,9 +13,6 @@ import 'plug_command_tracker.dart';
 class DeviceFacade {
   static Future<List<ClientDevice>> all() => DeviceApi.list();
 
-  static Future<ClientDevice> setPlug(int deviceId, String plug) =>
-      DeviceApi.setPlug(deviceId, plug);
-
   /// Enchufe del hogar del cliente, o null si no tiene.
   static Future<ClientDevice?> homePlug() async => homePlugOf(await all());
 

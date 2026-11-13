@@ -10,7 +10,9 @@ import '../../../services/app_i18n.dart';
 import '../../../services/app_navigator.dart';
 import '../../../services/app_settings_store.dart';
 import '../../iam/infrastructure/session_store.dart';
-import 'device_api.dart';
+import '../application/device_facade.dart';
+import '../domain/client_device.dart';
+import '../domain/plug_status.dart';
 import 'notification_service.dart';
 
 /// STOMP/WebSocket client for live telemetry.
@@ -127,22 +129,17 @@ class RealtimeService {
       NotificationService.showDangerAlert(name, value);
     }
 
-    // Offer to cut the power — once per DANGER episode per device, and only
-    // while the power is still ON. If the plug already reports OFF (the user
-    // or the device's local fail-safe already cut it) there is nothing to cut,
-    // so we skip the modal. We do NOT mark the episode handled in that case, so
-    // if the power comes back ON while still in DANGER we prompt again.
-    final plugOff = (data['plug'] ?? '').toString().toUpperCase() == 'OFF';
-    if (deviceId == null || plugOff || _dangerHandled.contains(deviceId)) return;
+    // Una ventana por episodio DANGER y sensor. Si el enchufe ya está apagado
+    // lo decide la ventana con el estado real, no esta lectura.
+    if (deviceId == null || _dangerHandled.contains(deviceId)) return;
     _dangerHandled.add(deviceId);
     dangerReading.value = data;
   }
 }
 
-/// Mounts an app-wide listener that, on a DANGER reading for one of the
-/// client's own sensors, asks whether to cut the power and — if confirmed —
-/// sends the relay-OFF order (backend → edge → device). Uses [appNavigatorKey]
-/// so the dialog appears regardless of the current screen.
+/// Ante una lectura DANGER de un sensor del cliente, pregunta si apagar el
+/// enchufe del hogar y sigue la orden hasta que el Edge la confirme. Usa
+/// [appNavigatorKey] para que la ventana salga en cualquier pantalla.
 class DangerAlertGate extends StatefulWidget {
   const DangerAlertGate({super.key, required this.child});
 
@@ -173,32 +170,29 @@ class _DangerAlertGateState extends State<DangerAlertGate> {
     final ctx = appNavigatorKey.currentContext;
     if (ctx == null) return;
 
-    final deviceId = (data['deviceDbId'] as num?)?.toInt();
-    if (deviceId == null) return;
     final name =
         (data['deviceName'] ?? data['serialNumber'] ?? 'Sensor').toString();
     final value = (data['field_uT'] as num?)?.toDouble();
 
     _dialogOpen = true;
-    final cut = await showDialog<bool>(
-      context: ctx,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: 0.6),
-      builder: (dialogCtx) => _DangerDialog(name: name, value: value),
-    );
-    _dialogOpen = false;
+    try {
+      // La lectura viene del sensor; la orden va al enchufe del hogar.
+      final plug = await DeviceFacade.homePlug();
+      if (plug == null || plug.plugOrderPending) return;
+      if (plug.realPlug == PlugPower.off) return;
+      if (!ctx.mounted) return;
 
-    if (cut == true) {
-      try {
-        await DeviceApi.setPlug(deviceId, 'OFF');
-        RealtimeService.readingTick.value++; // nudge screens to refresh
-      } on ApiException catch (e) {
-        final messenger = appNavigatorKey.currentContext;
-        if (messenger != null && messenger.mounted) {
-          ScaffoldMessenger.of(messenger)
-              .showSnackBar(SnackBar(content: Text(e.message)));
-        }
-      }
+      final cut = await showDialog<bool>(
+        context: ctx,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withValues(alpha: 0.6),
+        builder: (dialogCtx) => _DangerDialog(name: name, value: value),
+      );
+      if (cut == true) await sendPlugOrder(plug, PlugPower.off);
+    } on ApiException catch (e) {
+      _snack(e.message);
+    } finally {
+      _dialogOpen = false;
     }
   }
 
@@ -208,6 +202,36 @@ class _DangerAlertGateState extends State<DangerAlertGate> {
 
 /// Styled DANGER dialog (dark theme, red accent) offering to cut the power.
 /// Pops `true` (cut) or `false` (keep on).
+/// Envía la orden al enchufe, avisa que quedó pendiente y luego el resultado.
+/// Las pantallas se refrescan con [RealtimeService.readingTick].
+Future<PlugOrderOutcome?> sendPlugOrder(ClientDevice plug, String action) async {
+  try {
+    final command = await DeviceFacade.requestPlug(plug, action);
+    RealtimeService.readingTick.value++;
+    _snack(tr('plug_pending'));
+    final outcome = await DeviceFacade.awaitConfirmation(command);
+    RealtimeService.readingTick.value++;
+    _snack(switch (outcome) {
+      PlugOrderOutcome.confirmed =>
+        tr(action == PlugPower.off ? 'plug_confirmedOff' : 'plug_confirmedOn'),
+      PlugOrderOutcome.failed => tr('plug_failed'),
+      PlugOrderOutcome.unconfirmed => tr('plug_unconfirmed'),
+    });
+    return outcome;
+  } on ApiException catch (e) {
+    _snack(e.message);
+    return null;
+  }
+}
+
+void _snack(String message) {
+  final ctx = appNavigatorKey.currentContext;
+  if (ctx == null || !ctx.mounted) return;
+  ScaffoldMessenger.of(ctx)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(message)));
+}
+
 class _DangerDialog extends StatelessWidget {
   const _DangerDialog({required this.name, this.value});
 

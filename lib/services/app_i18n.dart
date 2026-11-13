@@ -97,7 +97,7 @@ const Map<String, String> _en = {
   'mon_powerOn': 'Power connected',
   'mon_powerOff': 'Power cut off',
   'mon_noRelayState': 'Device has not reported its relay state yet.',
-  'mon_relayReports': 'Device reports relay',
+  'mon_relayReports': 'Real state',
   'mon_relayToggleHint': 'Toggle to open/close the current.',
   'mon_updated': 'Updated',
   'mon_noData': 'No data yet',
@@ -277,9 +277,16 @@ const Map<String, String> _en = {
   // Danger power-cut modal
   'danger_modalTitle': 'Dangerous radiation detected',
   'danger_modalBody':
-      'Radiation reached a DANGER level on this sensor. Do you want to cut the power connected to it?',
+      'Radiation reached a DANGER level on this sensor. Do you want to switch off your smart plug?',
   'danger_cutPower': 'Cut the power',
   'danger_keepOn': 'Keep it on',
+  'plug_pending': 'Order sent. Waiting for the plug to confirm…',
+  'plug_confirmedOff': 'The plug confirmed the power is off.',
+  'plug_confirmedOn': 'The plug confirmed the power is on.',
+  'plug_failed': 'The plug could not apply the order.',
+  'plug_unconfirmed': 'No confirmation yet. The order is still pending.',
+  'plug_pendingBadge': 'PENDING',
+  'plug_unknown': 'The plug has not reported its state yet.',
 
   // Relative time
   'time_justNow': 'just now',
@@ -361,7 +368,7 @@ const Map<String, String> _es = {
   'mon_powerOn': 'Corriente conectada',
   'mon_powerOff': 'Corriente cortada',
   'mon_noRelayState': 'El dispositivo aún no reporta el estado de su relé.',
-  'mon_relayReports': 'El dispositivo reporta relé',
+  'mon_relayReports': 'Estado real',
   'mon_relayToggleHint': 'Usa el switch para abrir/cerrar la corriente.',
   'mon_updated': 'Actualizado',
   'mon_noData': 'Sin datos aún',
@@ -541,9 +548,16 @@ const Map<String, String> _es = {
   // Danger power-cut modal
   'danger_modalTitle': 'Radiación peligrosa detectada',
   'danger_modalBody':
-      'La radiación alcanzó un nivel de PELIGRO en este sensor. ¿Deseas cortar la corriente conectada a él?',
+      'La radiación alcanzó un nivel de PELIGRO en este sensor. ¿Deseas apagar tu enchufe inteligente?',
   'danger_cutPower': 'Cortar la corriente',
   'danger_keepOn': 'Mantener encendido',
+  'plug_pending': 'Orden enviada. Esperando confirmación del enchufe…',
+  'plug_confirmedOff': 'El enchufe confirmó el corte de corriente.',
+  'plug_confirmedOn': 'El enchufe confirmó que la corriente está conectada.',
+  'plug_failed': 'El enchufe no pudo aplicar la orden.',
+  'plug_unconfirmed': 'Sin confirmación todavía. La orden sigue pendiente.',
+  'plug_pendingBadge': 'PENDIENTE',
+  'plug_unknown': 'El enchufe todavía no informó su estado.',
 
   // Relative time
   'time_justNow': 'ahora mismo',
