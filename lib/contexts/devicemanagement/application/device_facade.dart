@@ -1,7 +1,7 @@
 import '../domain/client_device.dart';
 import '../infrastructure/device_api.dart';
 
-/// Punto de entrada del contexto iottelemetry para las pantallas.
+/// Punto de entrada del contexto devicemanagement para las pantallas.
 ///
 /// Los flujos en vivo (STOMP) y las notificaciones locales viven en
 /// `infrastructure/realtime_service.dart` y `notification_service.dart`, que

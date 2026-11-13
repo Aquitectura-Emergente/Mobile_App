@@ -6,8 +6,8 @@ import 'package:latlong2/latlong.dart';
 
 import '../../contexts/iam/application/auth_facade.dart';
 import '../../contexts/iam/domain/client_profile.dart';
-import '../../contexts/iottelemetry/application/device_facade.dart';
-import '../../contexts/iottelemetry/domain/client_device.dart';
+import '../../contexts/devicemanagement/application/device_facade.dart';
+import '../../contexts/devicemanagement/domain/client_device.dart';
 import '../../core/http/api_client.dart';
 import '../../services/app_i18n.dart';
 import 'etapa3_components.dart';

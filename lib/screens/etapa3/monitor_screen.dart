@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../contexts/iottelemetry/application/device_facade.dart';
-import '../../contexts/iottelemetry/domain/client_device.dart';
-import '../../contexts/iottelemetry/infrastructure/realtime_service.dart';
+import '../../contexts/devicemanagement/application/device_facade.dart';
+import '../../contexts/devicemanagement/domain/client_device.dart';
+import '../../contexts/devicemanagement/infrastructure/realtime_service.dart';
 import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
 import '../../contexts/radiationmonitoring/domain/client_reading.dart';
 import '../../core/http/api_client.dart';

@@ -8,7 +8,7 @@ import 'services/app_navigator.dart';
 import 'services/app_settings_store.dart';
 import 'services/onboarding_flow_store.dart';
 import 'contexts/iam/infrastructure/session_store.dart';
-import 'contexts/iottelemetry/infrastructure/realtime_service.dart';
+import 'contexts/devicemanagement/infrastructure/realtime_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/etapa1/screen_7_pair_your_sensor.dart';
 

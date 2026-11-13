@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:emsafe_app/contexts/iottelemetry/domain/client_device.dart';
+import 'package:emsafe_app/contexts/devicemanagement/domain/client_device.dart';
 
 ClientDevice device({String? plug, String? desiredPlug, String status = 'active'}) =>
     ClientDevice(

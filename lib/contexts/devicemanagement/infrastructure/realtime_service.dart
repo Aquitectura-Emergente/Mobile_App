@@ -15,11 +15,8 @@ import 'notification_service.dart';
 
 /// STOMP/WebSocket client for live telemetry.
 ///
-/// The backend broadcasts every ingested reading globally to /topic/readings
-/// (for admin/technician web) AND, when the sensor belongs to a client, to
-/// /topic/clients/{clientId}/readings. The mobile app subscribes ONLY to its
-/// own per-client topic, so a client never sees — or gets DANGER alerts about —
-/// another client's sensors.
+/// The app subscribes only to /topic/clients/{clientId}/readings, so a client
+/// never sees (or gets DANGER alerts about) another client's sensors.
 ///
 /// Screens listen to [readingTick] (a counter bumped on every reading) and
 /// refresh their data. On DANGER, [dangerReading] is bumped so the app can pop
@@ -86,11 +83,10 @@ class RealtimeService {
   }
 
   static void _onConnect(StompFrame frame) {
-    // Own readings only. Fall back to the global topic if the user id is
-    // unknown (shouldn't happen for a logged-in client), filtering by clientId.
-    final destination = _userId != null
-        ? '/topic/clients/$_userId/readings'
-        : '/topic/readings';
+    // Solo el tópico propio: el global trae lecturas de todos los clientes.
+    final userId = _userId;
+    if (userId == null) return;
+    final destination = '/topic/clients/$userId/readings';
     debugPrint('[EMSafe][WS] connected → $destination');
     _client?.subscribe(
       destination: destination,
@@ -99,9 +95,8 @@ class RealtimeService {
         if (body == null || body.isEmpty) return;
         try {
           final data = jsonDecode(body) as Map<String, dynamic>;
-          // Defensive filter (only relevant on the global fallback topic).
-          if (_userId != null && data['clientId'] != null &&
-              (data['clientId'] as num).toInt() != _userId) {
+          if (data['clientId'] != null &&
+              (data['clientId'] as num).toInt() != userId) {
             return;
           }
           lastReading = data;
