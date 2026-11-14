@@ -540,3 +540,196 @@ class _BottomNavItem extends StatelessWidget {
     );
   }
 }
+
+/// Medición actual destacada (valor en µT, estado y barra opcional).
+class LiveReadingHero extends StatelessWidget {
+  const LiveReadingHero({
+    super.key,
+    required this.value,
+    required this.color,
+    required this.statusLabel,
+    required this.statusColor,
+    required this.updatedText,
+    this.progress,
+  });
+
+  final double? value;
+  final Color color;
+  final String statusLabel;
+  final Color statusColor;
+  final String updatedText;
+
+  /// Fracción del umbral (0..1); sin valor no se dibuja la barra.
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      padding: const EdgeInsets.all(22),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              StatusPill(
+                label: statusLabel,
+                color: statusColor,
+              ),
+              const Spacer(),
+              Text(
+                updatedText,
+                style: TextStyle(
+                  color: Etapa3Palette.quiet.withValues(alpha: 0.9),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          Container(
+            width: 154,
+            height: 154,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: 0.06),
+              border: Border.all(color: color.withValues(alpha: 0.3), width: 2),
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: 0.16), blurRadius: 28),
+              ],
+            ),
+            child: Icon(Icons.sensors, color: color, size: 76),
+          ),
+          const SizedBox(height: 26),
+          Text(
+            etapa3Num(value),
+            style: const TextStyle(
+              color: Etapa3Palette.text,
+              fontSize: 56,
+              fontWeight: FontWeight.w900,
+              height: 0.95,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '$etapa3Unit · ${tr('dash_currentExposure').toLowerCase()}',
+            style: const TextStyle(
+              color: Etapa3Palette.muted,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (progress != null) ...[
+            const SizedBox(height: 22),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: progress!.clamp(0.0, 1.0),
+                minHeight: 8,
+                backgroundColor: const Color(0xFF32343E),
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Barra del gráfico de tendencia.
+class TrendPoint {
+  const TrendPoint(this.value, this.color);
+
+  final double value;
+  final Color color;
+}
+
+/// Gráfico de barras con las lecturas recientes.
+class TrendCard extends StatelessWidget {
+  const TrendCard({super.key, required this.points});
+
+  /// De la más reciente a la más antigua.
+  final List<TrendPoint> points;
+
+  @override
+  Widget build(BuildContext context) {
+    // Ventana de las últimas 12, de la más antigua a la más reciente.
+    final window = points.take(12).toList().reversed.toList();
+    final values = window
+        .map((p) => p.value)
+        .where((v) => v >= 0)
+        .toList();
+    final maxVal = values.isEmpty
+        ? 1.0
+        : values.reduce((a, b) => a > b ? a : b);
+    final safeMax = maxVal <= 0 ? 1.0 : maxVal;
+
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  tr('mon_recentTitle'),
+                  style: const TextStyle(
+                    color: Etapa3Palette.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              StatusPill(
+                label: '${window.length} pts',
+                color: Etapa3Palette.cyan,
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 110,
+            child: window.isEmpty
+                ? Center(
+                    child: Text(
+                      tr('mon_noChart'),
+                      style: const TextStyle(
+                          color: Etapa3Palette.quiet, fontSize: 12),
+                    ),
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (final point in window) ...[
+                        Expanded(
+                          child: FractionallySizedBox(
+                            heightFactor:
+                                (point.value / safeMax).clamp(0.04, 1.0),
+                            alignment: Alignment.bottomCenter,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: point.color.withValues(alpha: 0.72),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                      ],
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${tr('mon_peakWindow')} ${etapa3Num(safeMax)} $etapa3Unit.',
+            style: const TextStyle(
+              color: Etapa3Palette.muted,
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

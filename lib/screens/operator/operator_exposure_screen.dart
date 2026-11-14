@@ -4,9 +4,18 @@ import 'package:flutter/material.dart';
 
 import '../../contexts/personaldosimetry/application/dosimetry_facade.dart';
 import '../../contexts/personaldosimetry/domain/exposure_session.dart';
+import '../../contexts/personaldosimetry/domain/personal_reading.dart';
 import '../../services/app_i18n.dart';
 import '../etapa3/etapa3_components.dart';
 import 'operator_components.dart';
+
+/// Jornada y sus lecturas más recientes (de la más antigua a la más reciente).
+class _ExposureData {
+  const _ExposureData(this.session, this.readings);
+
+  final ExposureSession? session;
+  final List<PersonalReading> readings;
+}
 
 /// Exposición acumulada de la jornada frente al límite del puesto.
 class OperatorExposureScreen extends StatefulWidget {
@@ -22,10 +31,10 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen>
   // Cambiar (o quitar) cuando exista un WebSocket de dosimetría.
   static const _refreshEvery = Duration(seconds: 3);
 
-  late Future<ExposureSession?> _future = _fetch();
+  late Future<_ExposureData> _future = _fetch();
   Timer? _timer;
   bool _inFlight = false;
-  ExposureSession? _last;
+  _ExposureData? _last;
   bool _hasLast = false;
 
   @override
@@ -63,13 +72,20 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen>
 
   /// Consulta la jornada marcando la petición en curso, para no solapar
   /// consultas si el backend tarda más que el intervalo.
-  Future<ExposureSession?> _fetch() {
+  Future<_ExposureData> _fetch() {
     _inFlight = true;
-    final future = DosimetryFacade.currentShift();
+    final future = _load();
     future.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
       _inFlight = false;
     });
     return future;
+  }
+
+  Future<_ExposureData> _load() async {
+    final session = await DosimetryFacade.currentShift();
+    if (session == null || session.isClosed) return _ExposureData(session, const []);
+    return _ExposureData(
+        session, await DosimetryFacade.latestShiftReadings(session.id));
   }
 
   void _reload() {
@@ -88,7 +104,7 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen>
         icon: const Icon(Icons.refresh, color: Etapa3Palette.muted),
         onPressed: _reload,
       ),
-      child: FutureBuilder<ExposureSession?>(
+      child: FutureBuilder<_ExposureData>(
         future: _future,
         builder: (context, snap) {
           // Se guarda la última respuesta buena: si una consulta periódica
@@ -104,10 +120,10 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen>
             }
             return Etapa3Error(message: snap.error.toString(), onRetry: _reload);
           }
-          final session = _last;
+          final session = _last!.session;
           final content = session == null || session.isClosed
               ? _NoDosimeter(lastShift: session)
-              : _ShiftView(session: session);
+              : _ShiftView(session: session, readings: _last!.readings);
           if (!snap.hasError) return content;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -131,9 +147,10 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen>
 }
 
 class _ShiftView extends StatelessWidget {
-  const _ShiftView({required this.session});
+  const _ShiftView({required this.session, required this.readings});
 
   final ExposureSession session;
+  final List<PersonalReading> readings;
 
   @override
   Widget build(BuildContext context) {
@@ -205,12 +222,50 @@ class _ShiftView extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 20),
+        SectionLabel(tr('op_liveReading')),
+        const SizedBox(height: 10),
+        _LiveReading(readings: readings),
         if (status != ExposureStatus.normal) ...[
           const SizedBox(height: 20),
           SectionLabel(tr('op_recommendations')),
           const SizedBox(height: 10),
           _Recommendations(exceeded: status == ExposureStatus.exceeded),
         ],
+      ],
+    );
+  }
+}
+
+/// Última medición del dosímetro y su tendencia, con los componentes del
+/// monitor del hogar. Las lecturas personales no traen nivel: color neutro.
+class _LiveReading extends StatelessWidget {
+  const _LiveReading({required this.readings});
+
+  final List<PersonalReading> readings;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = readings.isEmpty ? null : readings.last;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LiveReadingHero(
+          value: latest?.fieldMicrotesla,
+          color: Etapa3Palette.cyan,
+          statusLabel: latest == null ? tr('mon_noData') : tr('mon_online'),
+          statusColor: latest == null ? Etapa3Palette.amber : Etapa3Palette.green,
+          updatedText: latest == null
+              ? tr('mon_noData')
+              : '${tr('mon_updated')} ${etapa3TimeOfDay(latest.capturedTo ?? latest.capturedFrom)}',
+        ),
+        const SizedBox(height: 16),
+        TrendCard(
+          points: [
+            for (final r in readings.reversed)
+              TrendPoint(r.fieldMicrotesla, Etapa3Palette.cyan),
+          ],
+        ),
       ],
     );
   }

@@ -229,7 +229,12 @@ class _MonitorScreenState extends State<MonitorScreen> {
         ],
         SectionLabel(tr('mon_signalTrend')),
         const SizedBox(height: 10),
-        _TrendCard(readings: readings),
+        TrendCard(
+          points: [
+            for (final r in readings)
+              TrendPoint(r.value ?? 0, etapa3LevelColor(r.level)),
+          ],
+        ),
         const SizedBox(height: 20),
         SectionLabel(tr('mon_recentReadings')),
         const SizedBox(height: 10),
@@ -335,74 +340,15 @@ class _SensorHero extends StatelessWidget {
     final online = device.status.toLowerCase() == 'active';
     final double progress = (device.latestValue ?? 0) / etapa3SafetyThreshold;
 
-    return GlassPanel(
-      padding: const EdgeInsets.all(22),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              StatusPill(
-                label: online ? tr('mon_online') : device.status.toUpperCase(),
-                color: online ? Etapa3Palette.green : Etapa3Palette.amber,
-              ),
-              const Spacer(),
-              Text(
-                device.latestReadingDate != null
-                    ? '${tr('mon_updated')} ${device.latestReadingDate}'
-                    : tr('mon_noData'),
-                style: TextStyle(
-                  color: Etapa3Palette.quiet.withValues(alpha: 0.9),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          Container(
-            width: 154,
-            height: 154,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.06),
-              border: Border.all(color: color.withValues(alpha: 0.3), width: 2),
-              boxShadow: [
-                BoxShadow(color: color.withValues(alpha: 0.16), blurRadius: 28),
-              ],
-            ),
-            child: Icon(Icons.sensors, color: color, size: 76),
-          ),
-          const SizedBox(height: 26),
-          Text(
-            etapa3Num(device.latestValue),
-            style: const TextStyle(
-              color: Etapa3Palette.text,
-              fontSize: 56,
-              fontWeight: FontWeight.w900,
-              height: 0.95,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$etapa3Unit · ${tr('dash_currentExposure').toLowerCase()}',
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 22),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
-              minHeight: 8,
-              backgroundColor: const Color(0xFF32343E),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
-          ),
-        ],
-      ),
+    return LiveReadingHero(
+      value: device.latestValue,
+      color: color,
+      statusLabel: online ? tr('mon_online') : device.status.toUpperCase(),
+      statusColor: online ? Etapa3Palette.green : Etapa3Palette.amber,
+      updatedText: device.latestReadingDate != null
+          ? '${tr('mon_updated')} ${device.latestReadingDate}'
+          : tr('mon_noData'),
+      progress: progress,
     );
   }
 }
@@ -528,95 +474,6 @@ class _PendingBadge extends StatelessWidget {
           fontWeight: FontWeight.w800,
           letterSpacing: 0.6,
         ),
-      ),
-    );
-  }
-}
-
-class _TrendCard extends StatelessWidget {
-  const _TrendCard({required this.readings});
-
-  final List<ClientReading> readings;
-
-  @override
-  Widget build(BuildContext context) {
-    // readings come newest-first; take a window and show oldest→newest.
-    final window = readings.take(12).toList().reversed.toList();
-    final values = window
-        .map((r) => r.value ?? 0)
-        .where((v) => v >= 0)
-        .toList();
-    final maxVal = values.isEmpty
-        ? 1.0
-        : values.reduce((a, b) => a > b ? a : b);
-    final safeMax = maxVal <= 0 ? 1.0 : maxVal;
-
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  tr('mon_recentTitle'),
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              StatusPill(
-                label: '${window.length} pts',
-                color: Etapa3Palette.cyan,
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 110,
-            child: window.isEmpty
-                ? Center(
-                    child: Text(
-                      tr('mon_noChart'),
-                      style: const TextStyle(
-                          color: Etapa3Palette.quiet, fontSize: 12),
-                    ),
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      for (final reading in window) ...[
-                        Expanded(
-                          child: FractionallySizedBox(
-                            heightFactor:
-                                ((reading.value ?? 0) / safeMax).clamp(0.04, 1.0),
-                            alignment: Alignment.bottomCenter,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: etapa3LevelColor(reading.level)
-                                    .withValues(alpha: 0.72),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                      ],
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '${tr('mon_peakWindow')} ${etapa3Num(safeMax)} $etapa3Unit.',
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 12,
-              height: 1.35,
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -43,12 +43,8 @@ class _OperatorReadingsScreenState extends State<OperatorReadingsScreen> {
   Future<_ShiftReadings> _load() async {
     final session = await DosimetryFacade.currentShift();
     if (session == null) return const _ShiftReadings(null, []);
-    // La API ordena de la más antigua a la más reciente; se pide la última página.
-    final first = await DosimetryFacade.shiftReadings(session.id);
-    final page = first.totalPages > 1
-        ? await DosimetryFacade.shiftReadings(session.id, page: first.totalPages - 1)
-        : first;
-    return _ShiftReadings(session, page.content);
+    return _ShiftReadings(
+        session, await DosimetryFacade.latestShiftReadings(session.id));
   }
 
   void _reload() {

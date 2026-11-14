@@ -16,6 +16,17 @@ class DosimetryFacade {
           {int page = 0}) =>
       DosimetryApi.sessionReadings(sessionId, page: page);
 
+  /// Lecturas más recientes de la jornada (su última página), de la más
+  /// antigua a la más reciente, como las ordena la API.
+  static Future<List<PersonalReading>> latestShiftReadings(
+      String sessionId) async {
+    final first = await shiftReadings(sessionId);
+    final page = first.totalPages > 1
+        ? await shiftReadings(sessionId, page: first.totalPages - 1)
+        : first;
+    return page.content;
+  }
+
   static Future<PageOf<ExposureSession>> history({int page = 0}) async {
     final workerId = await SessionStore.userId();
     if (workerId == null) {
