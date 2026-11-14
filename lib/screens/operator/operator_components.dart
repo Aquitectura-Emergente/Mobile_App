@@ -21,6 +21,10 @@ String exposureLabel(ExposureStatus status) => switch (status) {
 /// Porcentaje con el formato de la app ("84 %").
 String exposurePercent(double value) => '${value.round()} %';
 
+/// Unidad del índice como se muestra al operario ("uT*s" → "µT·s").
+String exposureUnit(String unit) =>
+    unit.replaceAll('uT', 'µT').replaceAll('*', '·');
+
 /// Índice de exposición abreviado con un decimal: 950 → "950",
 /// 12 400 → "12.4k", 3 000 000 → "3M".
 String exposureIndex(double value) {

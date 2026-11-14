@@ -189,14 +189,14 @@ class _ShiftView extends StatelessWidget {
               icon: Icons.stacked_line_chart,
               label: tr('op_accumulated'),
               value: exposureIndex(session.accumulatedIndex),
-              caption: session.unit,
+              caption: exposureUnit(session.unit),
               accent: color,
             ),
             MetricTile(
               icon: Icons.flag_outlined,
               label: tr('op_limit'),
               value: exposureIndex(session.limitIndex),
-              caption: session.unit,
+              caption: exposureUnit(session.unit),
               accent: Etapa3Palette.blue,
             ),
           ],
@@ -208,7 +208,7 @@ class _ShiftView extends StatelessWidget {
               icon: Icons.hourglass_bottom,
               label: tr('op_remaining'),
               value: exposureIndex(session.remainingIndex),
-              caption: session.unit,
+              caption: exposureUnit(session.unit),
               accent: Etapa3Palette.cyan,
             ),
             MetricTile(
@@ -242,19 +242,27 @@ class _ShiftView extends StatelessWidget {
 class _LiveReading extends StatelessWidget {
   const _LiveReading({required this.readings});
 
+  /// Pasado este tiempo sin lecturas nuevas, deja de mostrarse "en línea".
+  static const _staleAfter = Duration(seconds: 10);
+
   final List<PersonalReading> readings;
 
   @override
   Widget build(BuildContext context) {
     final latest = readings.isEmpty ? null : readings.last;
+    final at = etapa3ParseTime(latest?.capturedTo ?? latest?.capturedFrom);
+    final recent =
+        at != null && DateTime.now().difference(at) <= _staleAfter;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         LiveReadingHero(
           value: latest?.fieldMicrotesla,
           color: Etapa3Palette.cyan,
-          statusLabel: latest == null ? tr('mon_noData') : tr('mon_online'),
-          statusColor: latest == null ? Etapa3Palette.amber : Etapa3Palette.green,
+          statusLabel: latest == null
+              ? tr('mon_noData')
+              : (recent ? tr('mon_online') : tr('op_noRecentData')),
+          statusColor: recent ? Etapa3Palette.green : Etapa3Palette.amber,
           updatedText: latest == null
               ? tr('mon_noData')
               : '${tr('mon_updated')} ${etapa3TimeOfDay(latest.capturedTo ?? latest.capturedFrom)}',

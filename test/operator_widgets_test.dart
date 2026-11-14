@@ -24,6 +24,10 @@ void main() {
     expect(exposureColor(session.status), isNot(exposureColor(ExposureStatus.normal)));
   });
 
+  test('la unidad del índice se muestra como µT·s', () {
+    expect(exposureUnit('uT*s'), 'µT·s');
+  });
+
   test('los índices grandes se abrevian de forma coherente', () {
     expect(exposureIndex(950), '950');
     expect(exposureIndex(1000), '1k');
