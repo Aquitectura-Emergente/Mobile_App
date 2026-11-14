@@ -107,13 +107,7 @@ class _ShiftView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1.45,
+        _TileRow(
           children: [
             MetricTile(
               icon: Icons.stacked_line_chart,
@@ -129,6 +123,11 @@ class _ShiftView extends StatelessWidget {
               caption: session.unit,
               accent: Etapa3Palette.blue,
             ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _TileRow(
+          children: [
             MetricTile(
               icon: Icons.hourglass_bottom,
               label: tr('op_remaining'),
@@ -154,6 +153,28 @@ class _ShiftView extends StatelessWidget {
           _Recommendations(exceeded: status == ExposureStatus.exceeded),
         ],
       ],
+    );
+  }
+}
+
+/// Fila de dos tarjetas con la altura de la más alta: sin altura fija, el
+/// contenido nunca se desborda aunque la pantalla sea estrecha o el texto grande.
+class _TileRow extends StatelessWidget {
+  const _TileRow({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: children[0]),
+          const SizedBox(width: 12),
+          Expanded(child: children[1]),
+        ],
+      ),
     );
   }
 }

@@ -23,4 +23,13 @@ void main() {
     expect(find.text('84 %'), findsOneWidget);
     expect(exposureColor(session.status), isNot(exposureColor(ExposureStatus.normal)));
   });
+
+  test('los índices grandes se abrevian de forma coherente', () {
+    expect(exposureIndex(950), '950');
+    expect(exposureIndex(1000), '1k');
+    expect(exposureIndex(1250), '1.3k');
+    expect(exposureIndex(12400), '12.4k');
+    expect(exposureIndex(999960), '1M');
+    expect(exposureIndex(3450000), '3.5M');
+  });
 }

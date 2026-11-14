@@ -379,12 +379,17 @@ class MetricTile extends StatelessWidget {
         children: [
           Icon(icon, color: accent, size: 22),
           const SizedBox(height: 14),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Etapa3Palette.text,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: const TextStyle(
+                color: Etapa3Palette.text,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
           const SizedBox(height: 4),

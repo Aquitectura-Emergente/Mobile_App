@@ -21,10 +21,19 @@ String exposureLabel(ExposureStatus status) => switch (status) {
 /// Porcentaje con el formato de la app ("84 %").
 String exposurePercent(double value) => '${value.round()} %';
 
-/// Índice de exposición abreviado (12 400 → "12.4k").
-String exposureIndex(double value) => value >= 10000
-    ? '${(value / 1000).toStringAsFixed(1)}k'
-    : etapa3Num(value, decimals: 0);
+/// Índice de exposición abreviado con un decimal: 950 → "950",
+/// 12 400 → "12.4k", 3 000 000 → "3M".
+String exposureIndex(double value) {
+  final abs = value.abs();
+  if (abs < 999.5) return etapa3Num(value, decimals: 0);
+  // Se redondea antes de elegir el sufijo para no mostrar "1000k".
+  final inK = (value / 1000 * 10).round() / 10;
+  if (inK.abs() < 1000) return '${_oneDecimal(inK)}k';
+  return '${_oneDecimal((value / 1000000 * 10).round() / 10)}M';
+}
+
+String _oneDecimal(double v) =>
+    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 
 /// Fecha y hora cortas de una marca ISO.
 String exposureDateTime(String? iso) {
