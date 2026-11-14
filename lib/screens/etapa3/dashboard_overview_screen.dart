@@ -51,7 +51,8 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   }
 
   void _reload() {
-    setState(() => _future = MonitoringFacade.dashboard());
+    final future = MonitoringFacade.dashboard();
+    setState(() { _future = future; });
   }
 
   @override

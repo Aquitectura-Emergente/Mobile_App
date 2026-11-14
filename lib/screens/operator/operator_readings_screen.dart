@@ -52,7 +52,9 @@ class _OperatorReadingsScreenState extends State<OperatorReadingsScreen> {
   }
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (!mounted) return;
+    final future = _load();
+    setState(() { _future = future; });
   }
 
   @override

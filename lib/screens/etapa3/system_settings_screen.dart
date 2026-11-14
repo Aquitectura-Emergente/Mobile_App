@@ -50,7 +50,8 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final future = _load();
+    setState(() { _future = future; });
   }
 
   void _toast(String msg) {

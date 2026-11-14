@@ -35,7 +35,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   void _reload() {
-    setState(() => _future = MonitoringFacade.report(_period));
+    final future = MonitoringFacade.report(_period);
+    setState(() { _future = future; });
   }
 
   @override

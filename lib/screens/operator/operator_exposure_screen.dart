@@ -36,7 +36,9 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen> {
   }
 
   void _reload() {
-    if (mounted) setState(() => _future = DosimetryFacade.currentShift());
+    if (!mounted) return;
+    final future = DosimetryFacade.currentShift();
+    setState(() { _future = future; });
   }
 
   @override

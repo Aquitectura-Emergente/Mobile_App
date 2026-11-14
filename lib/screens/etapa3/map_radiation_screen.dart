@@ -58,7 +58,8 @@ class _MapRadiationScreenState extends State<MapRadiationScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final future = _load();
+    setState(() { _future = future; });
   }
 
   /// All sensors sit at the client's registered site; spread them on a small

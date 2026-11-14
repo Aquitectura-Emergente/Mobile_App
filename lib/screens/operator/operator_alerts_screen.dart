@@ -17,7 +17,10 @@ class OperatorAlertsScreen extends StatefulWidget {
 class _OperatorAlertsScreenState extends State<OperatorAlertsScreen> {
   late Future<List<OperatorAlert>> _future = DosimetryFacade.alerts();
 
-  void _reload() => setState(() => _future = DosimetryFacade.alerts());
+  void _reload() {
+    final future = DosimetryFacade.alerts();
+    setState(() { _future = future; });
+  }
 
   @override
   Widget build(BuildContext context) {

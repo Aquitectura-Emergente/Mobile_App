@@ -63,7 +63,10 @@ class _MonitorScreenState extends State<MonitorScreen> {
     if (devices.isEmpty) return _SensorData(devices, null, const []);
     final selected = devices.firstWhere(
       (d) => d.id == _selectedId,
-      orElse: () => devices.first,
+      orElse: () => devices.firstWhere(
+        (d) => !d.isPlug,
+        orElse: () => devices.first,
+      ),
     );
     _selectedId = selected.id;
     final readings = await MonitoringFacade.deviceReadings(selected.id);
@@ -71,7 +74,8 @@ class _MonitorScreenState extends State<MonitorScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final future = _load();
+    setState(() { _future = future; });
   }
 
   void _selectDevice(int id) {
@@ -122,7 +126,7 @@ class _MonitorScreenState extends State<MonitorScreen> {
   }
 
   Widget _buildBody(AsyncSnapshot<_SensorData> snapshot) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
+    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
       return const Etapa3Loading();
     }
     if (snapshot.hasError) {
