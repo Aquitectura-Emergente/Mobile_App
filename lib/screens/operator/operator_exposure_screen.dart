@@ -25,7 +25,8 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen>
   late Future<ExposureSession?> _future = _fetch();
   Timer? _timer;
   bool _inFlight = false;
-  bool _loadedOnce = false;
+  ExposureSession? _last;
+  bool _hasLast = false;
 
   @override
   void initState() {
@@ -90,18 +91,39 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen>
       child: FutureBuilder<ExposureSession?>(
         future: _future,
         builder: (context, snap) {
-          // El indicador de carga solo en la primera consulta: en las
-          // siguientes se mantiene lo último mostrado (aunque sea "sin jornada").
-          if (snap.connectionState == ConnectionState.done) _loadedOnce = true;
-          if (!_loadedOnce) return const Etapa3Loading();
-          if (snap.hasError) {
+          // Se guarda la última respuesta buena: si una consulta periódica
+          // falla, se siguen mostrando esos datos con un aviso discreto.
+          if (snap.connectionState == ConnectionState.done && !snap.hasError) {
+            _last = snap.data;
+            _hasLast = true;
+          }
+          if (!_hasLast) {
+            // Primera carga: indicador mientras espera, error completo si falla.
+            if (snap.connectionState != ConnectionState.done) {
+              return const Etapa3Loading();
+            }
             return Etapa3Error(message: snap.error.toString(), onRetry: _reload);
           }
-          final session = snap.data;
-          if (session == null || session.isClosed) {
-            return _NoDosimeter(lastShift: session);
-          }
-          return _ShiftView(session: session);
+          final session = _last;
+          final content = session == null || session.isClosed
+              ? _NoDosimeter(lastShift: session)
+              : _ShiftView(session: session);
+          if (!snap.hasError) return content;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: StatusPill(
+                  label: tr('op_offlineRetrying'),
+                  color: Etapa3Palette.amber,
+                  icon: Icons.cloud_off_outlined,
+                ),
+              ),
+              const SizedBox(height: 12),
+              content,
+            ],
+          );
         },
       ),
     );
