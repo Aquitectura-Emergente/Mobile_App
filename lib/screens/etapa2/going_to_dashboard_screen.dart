@@ -3,7 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../../routes/etapa3_routes.dart';
+import '../../routes/home_route.dart';
 
 /// Going to dashboard (Etapa 2)
 /// Flujo: muestra un estado de progreso y redirige automáticamente.
@@ -24,11 +24,10 @@ class _GoingToDashboardScreenState extends State<GoingToDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer(const Duration(seconds: 3), () {
+    _timer = Timer(const Duration(seconds: 3), () async {
+      final route = await homeRoute();
       if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pushReplacementNamed(Etapa3Routes.dashboardOverview);
+      Navigator.of(context).pushReplacementNamed(route);
     });
   }
 

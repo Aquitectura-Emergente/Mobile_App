@@ -1,6 +1,9 @@
 import '../../../core/http/json.dart';
+import 'plug_status.dart';
 
-/// Sensor del cliente (espeja el DTO de `/api/client/devices`).
+export 'plug_status.dart' show PlugPower;
+
+/// Dispositivo del cliente (espeja el DTO de `/api/client/devices`).
 class ClientDevice {
   ClientDevice({
     required this.id,
@@ -30,10 +33,10 @@ class ClientDevice {
   final String? latestReadingDate;
   final int readingsCount;
 
-  /// Estado del rele que el dispositivo reporto en su ultima lectura.
+  /// Estado real del relé informado por el Edge (ON | OFF | UNKNOWN).
   final String? plug;
 
-  /// Estado del rele que el usuario ordeno desde la app (null = sin orden).
+  /// Acción de la orden pendiente; sin orden pendiente, coincide con [plug].
   final String? desiredPlug;
 
   factory ClientDevice.fromJson(Map<String, dynamic> j) => ClientDevice(
@@ -54,19 +57,21 @@ class ClientDevice {
 
   // ─── Comportamiento del agregado ──────────────────────────────────────────
 
-  /// Hay una orden del usuario que el dispositivo todavia no ha aplicado.
-  ///
-  /// El rele se gobierna de forma asincrona: la app escribe `desiredPlug` y el
-  /// edge lo recoge en el siguiente ciclo de POST. Hasta entonces, los dos
-  /// valores difieren y la interfaz debe mostrar que esta en transito.
+  /// Solo los enchufes inteligentes aceptan órdenes ON/OFF.
+  bool get isPlug => type.toLowerCase() == 'plug';
+
+  /// Estado real del relé, o null si el Edge aún no lo informó.
+  String? get realPlug =>
+      plug == PlugPower.on || plug == PlugPower.off ? plug : null;
+
+  /// Hay una orden que el Edge todavía no confirmó.
   bool get plugOrderPending =>
-      desiredPlug != null && plug != null && desiredPlug != plug;
+      desiredPlug != null && desiredPlug != plug;
 
-  /// Estado efectivo del rele: lo que el usuario pidio si hay orden, y si no,
-  /// lo ultimo que reporto el dispositivo.
-  String? get effectivePlug => desiredPlug ?? plug;
+  /// Acción pedida mientras la orden siga pendiente.
+  String? get pendingPlug => plugOrderPending ? desiredPlug : null;
 
-  bool get isPlugOn => effectivePlug == PlugState.on;
+  bool get isPlugOn => realPlug == PlugPower.on;
 
   /// "active" aqui significa *sensor instalado y reportando*, no cuenta
   /// habilitada (eso es iam). Son vocabularios distintos.
@@ -75,9 +80,10 @@ class ClientDevice {
   bool get hasReadings => readingsCount > 0;
 }
 
-abstract final class PlugState {
-  static const String on = 'ON';
-  static const String off = 'OFF';
-
-  static String toggle(String? current) => current == on ? off : on;
+/// Enchufe del hogar entre los dispositivos del cliente (hoy hay uno por hogar).
+ClientDevice? homePlugOf(List<ClientDevice> devices) {
+  for (final d in devices) {
+    if (d.isPlug) return d;
+  }
+  return null;
 }

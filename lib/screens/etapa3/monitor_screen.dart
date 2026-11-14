@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../contexts/iottelemetry/application/device_facade.dart';
-import '../../contexts/iottelemetry/domain/client_device.dart';
-import '../../contexts/iottelemetry/infrastructure/realtime_service.dart';
+import '../../contexts/devicemanagement/application/device_facade.dart';
+import '../../contexts/devicemanagement/domain/client_device.dart';
+import '../../contexts/devicemanagement/infrastructure/realtime_service.dart';
 import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
 import '../../contexts/radiationmonitoring/domain/client_reading.dart';
 import '../../core/http/api_client.dart';
@@ -63,7 +63,10 @@ class _MonitorScreenState extends State<MonitorScreen> {
     if (devices.isEmpty) return _SensorData(devices, null, const []);
     final selected = devices.firstWhere(
       (d) => d.id == _selectedId,
-      orElse: () => devices.first,
+      orElse: () => devices.firstWhere(
+        (d) => !d.isPlug,
+        orElse: () => devices.first,
+      ),
     );
     _selectedId = selected.id;
     final readings = await MonitoringFacade.deviceReadings(selected.id);
@@ -71,7 +74,8 @@ class _MonitorScreenState extends State<MonitorScreen> {
   }
 
   void _reload() {
-    setState(() => _future = _load());
+    final future = _load();
+    setState(() { _future = future; });
   }
 
   void _selectDevice(int id) {
@@ -80,20 +84,16 @@ class _MonitorScreenState extends State<MonitorScreen> {
     _reload();
   }
 
-  /// Sends the user's relay order (cut / restore power) to the backend;
-  /// the edge picks it up and drives the physical relay.
+  /// Envía la orden al enchufe y espera la confirmación del Edge.
   Future<void> _setPlug(ClientDevice device, bool on) async {
     setState(() => _plugBusy = true);
     try {
-      await DeviceFacade.setPlug(device.id, on ? 'ON' : 'OFF');
-      _reload();
-    } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
-      }
+      await sendPlugOrder(device, on ? PlugPower.on : PlugPower.off);
     } finally {
-      if (mounted) setState(() => _plugBusy = false);
+      if (mounted) {
+        setState(() => _plugBusy = false);
+        _reload();
+      }
     }
   }
 
@@ -126,7 +126,7 @@ class _MonitorScreenState extends State<MonitorScreen> {
   }
 
   Widget _buildBody(AsyncSnapshot<_SensorData> snapshot) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
+    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
       return const Etapa3Loading();
     }
     if (snapshot.hasError) {
@@ -217,17 +217,24 @@ class _MonitorScreenState extends State<MonitorScreen> {
           },
         ),
         const SizedBox(height: 20),
-        SectionLabel(tr('mon_powerControl')),
-        const SizedBox(height: 10),
-        _PlugCard(
-          device: device,
-          busy: _plugBusy,
-          onChanged: (on) => _setPlug(device, on),
-        ),
-        const SizedBox(height: 20),
+        if (device.isPlug) ...[
+          SectionLabel(tr('mon_powerControl')),
+          const SizedBox(height: 10),
+          _PlugCard(
+            device: device,
+            busy: _plugBusy,
+            onChanged: (on) => _setPlug(device, on),
+          ),
+          const SizedBox(height: 20),
+        ],
         SectionLabel(tr('mon_signalTrend')),
         const SizedBox(height: 10),
-        _TrendCard(readings: readings),
+        TrendCard(
+          points: [
+            for (final r in readings)
+              TrendPoint(r.value ?? 0, etapa3LevelColor(r.level)),
+          ],
+        ),
         const SizedBox(height: 20),
         SectionLabel(tr('mon_recentReadings')),
         const SizedBox(height: 10),
@@ -333,80 +340,21 @@ class _SensorHero extends StatelessWidget {
     final online = device.status.toLowerCase() == 'active';
     final double progress = (device.latestValue ?? 0) / etapa3SafetyThreshold;
 
-    return GlassPanel(
-      padding: const EdgeInsets.all(22),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              StatusPill(
-                label: online ? tr('mon_online') : device.status.toUpperCase(),
-                color: online ? Etapa3Palette.green : Etapa3Palette.amber,
-              ),
-              const Spacer(),
-              Text(
-                device.latestReadingDate != null
-                    ? '${tr('mon_updated')} ${device.latestReadingDate}'
-                    : tr('mon_noData'),
-                style: TextStyle(
-                  color: Etapa3Palette.quiet.withValues(alpha: 0.9),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          Container(
-            width: 154,
-            height: 154,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.06),
-              border: Border.all(color: color.withValues(alpha: 0.3), width: 2),
-              boxShadow: [
-                BoxShadow(color: color.withValues(alpha: 0.16), blurRadius: 28),
-              ],
-            ),
-            child: Icon(Icons.sensors, color: color, size: 76),
-          ),
-          const SizedBox(height: 26),
-          Text(
-            etapa3Num(device.latestValue),
-            style: const TextStyle(
-              color: Etapa3Palette.text,
-              fontSize: 56,
-              fontWeight: FontWeight.w900,
-              height: 0.95,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$etapa3Unit · ${tr('dash_currentExposure').toLowerCase()}',
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 22),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
-              minHeight: 8,
-              backgroundColor: const Color(0xFF32343E),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
-          ),
-        ],
-      ),
+    return LiveReadingHero(
+      value: device.latestValue,
+      color: color,
+      statusLabel: online ? tr('mon_online') : device.status.toUpperCase(),
+      statusColor: online ? Etapa3Palette.green : Etapa3Palette.amber,
+      updatedText: device.latestReadingDate != null
+          ? '${tr('mon_updated')} ${device.latestReadingDate}'
+          : tr('mon_noData'),
+      progress: progress,
     );
   }
 }
 
-/// Smart-plug relay control: shows the state reported by the device and lets
-/// the user order the relay to open (cut power) or close (restore power).
+/// Control del enchufe: muestra el estado real que informó el Edge y, si hay
+/// una orden sin confirmar, la marca como pendiente.
 class _PlugCard extends StatelessWidget {
   const _PlugCard({
     required this.device,
@@ -420,11 +368,13 @@ class _PlugCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // What the user ordered (falls back to what the device reports).
-    final desired = (device.desiredPlug ?? device.plug ?? 'ON').toUpperCase();
-    final isOn = desired == 'ON';
-    final color = isOn ? Etapa3Palette.green : Etapa3Palette.red;
-    final reported = device.plug?.toUpperCase();
+    final real = device.realPlug;
+    final isOn = real != PlugPower.off;
+    final color = real == null
+        ? Etapa3Palette.muted
+        : (isOn ? Etapa3Palette.green : Etapa3Palette.red);
+    final pending = device.pendingPlug;
+    final waiting = busy || pending != null;
 
     return GlassPanel(
       padding: const EdgeInsets.all(16),
@@ -445,19 +395,31 @@ class _PlugCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  isOn ? tr('mon_powerOn') : tr('mon_powerOff'),
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        real == null
+                            ? tr('mon_noData')
+                            : (isOn ? tr('mon_powerOn') : tr('mon_powerOff')),
+                        style: const TextStyle(
+                          color: Etapa3Palette.text,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (pending != null) ...[
+                      const SizedBox(width: 8),
+                      _PendingBadge(action: pending),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  reported == null
-                      ? tr('mon_noRelayState')
-                      : '${tr('mon_relayReports')} $reported. ${tr('mon_relayToggleHint')}',
+                  real == null
+                      ? tr('plug_unknown')
+                      : '${tr('mon_relayReports')}: $real. ${tr('mon_relayToggleHint')}',
                   style: const TextStyle(
                     color: Etapa3Palette.muted,
                     fontSize: 12,
@@ -468,7 +430,7 @@ class _PlugCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          busy
+          waiting
               ? const SizedBox(
                   width: 24,
                   height: 24,
@@ -490,90 +452,28 @@ class _PlugCard extends StatelessWidget {
   }
 }
 
-class _TrendCard extends StatelessWidget {
-  const _TrendCard({required this.readings});
+class _PendingBadge extends StatelessWidget {
+  const _PendingBadge({required this.action});
 
-  final List<ClientReading> readings;
+  final String action;
 
   @override
   Widget build(BuildContext context) {
-    // readings come newest-first; take a window and show oldest→newest.
-    final window = readings.take(12).toList().reversed.toList();
-    final values = window
-        .map((r) => r.value ?? 0)
-        .where((v) => v >= 0)
-        .toList();
-    final maxVal = values.isEmpty
-        ? 1.0
-        : values.reduce((a, b) => a > b ? a : b);
-    final safeMax = maxVal <= 0 ? 1.0 : maxVal;
-
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  tr('mon_recentTitle'),
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              StatusPill(
-                label: '${window.length} pts',
-                color: Etapa3Palette.cyan,
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 110,
-            child: window.isEmpty
-                ? Center(
-                    child: Text(
-                      tr('mon_noChart'),
-                      style: const TextStyle(
-                          color: Etapa3Palette.quiet, fontSize: 12),
-                    ),
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      for (final reading in window) ...[
-                        Expanded(
-                          child: FractionallySizedBox(
-                            heightFactor:
-                                ((reading.value ?? 0) / safeMax).clamp(0.04, 1.0),
-                            alignment: Alignment.bottomCenter,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: etapa3LevelColor(reading.level)
-                                    .withValues(alpha: 0.72),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                      ],
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '${tr('mon_peakWindow')} ${etapa3Num(safeMax)} $etapa3Unit.',
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 12,
-              height: 1.35,
-            ),
-          ),
-        ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Etapa3Palette.amber.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Etapa3Palette.amber.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        '${tr('plug_pendingBadge')} · $action',
+        style: const TextStyle(
+          color: Etapa3Palette.amber,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.6,
+        ),
       ),
     );
   }
