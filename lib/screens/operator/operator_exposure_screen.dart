@@ -16,28 +16,64 @@ class OperatorExposureScreen extends StatefulWidget {
   State<OperatorExposureScreen> createState() => _OperatorExposureScreenState();
 }
 
-class _OperatorExposureScreenState extends State<OperatorExposureScreen> {
+class _OperatorExposureScreenState extends State<OperatorExposureScreen>
+    with WidgetsBindingObserver {
   // Sin canal en vivo para el operario: se consulta cada cierto tiempo.
-  static const _refreshEvery = Duration(seconds: 20);
+  // Cambiar (o quitar) cuando exista un WebSocket de dosimetría.
+  static const _refreshEvery = Duration(seconds: 3);
 
-  late Future<ExposureSession?> _future = DosimetryFacade.currentShift();
+  late Future<ExposureSession?> _future = _fetch();
   Timer? _timer;
+  bool _inFlight = false;
+  bool _loadedOnce = false;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(_refreshEvery, (_) => _reload());
+    WidgetsBinding.instance.addObserver(this);
+    _startPolling();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
 
-  void _reload() {
-    if (!mounted) return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reload();
+      _startPolling();
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  void _startPolling() {
+    _timer?.cancel();
+    _timer = Timer.periodic(_refreshEvery, (_) {
+      // Con otra pantalla encima no se consulta.
+      if (ModalRoute.of(context)?.isCurrent ?? true) _reload();
+    });
+  }
+
+  /// Consulta la jornada marcando la petición en curso, para no solapar
+  /// consultas si el backend tarda más que el intervalo.
+  Future<ExposureSession?> _fetch() {
+    _inFlight = true;
     final future = DosimetryFacade.currentShift();
+    future.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+      _inFlight = false;
+    });
+    return future;
+  }
+
+  void _reload() {
+    if (!mounted || _inFlight) return;
+    final future = _fetch();
     setState(() { _future = future; });
   }
 
@@ -54,9 +90,10 @@ class _OperatorExposureScreenState extends State<OperatorExposureScreen> {
       child: FutureBuilder<ExposureSession?>(
         future: _future,
         builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done && !snap.hasData) {
-            return const Etapa3Loading();
-          }
+          // El indicador de carga solo en la primera consulta: en las
+          // siguientes se mantiene lo último mostrado (aunque sea "sin jornada").
+          if (snap.connectionState == ConnectionState.done) _loadedOnce = true;
+          if (!_loadedOnce) return const Etapa3Loading();
           if (snap.hasError) {
             return Etapa3Error(message: snap.error.toString(), onRetry: _reload);
           }
