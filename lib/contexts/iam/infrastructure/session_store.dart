@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Persists the authenticated client's session (JWT + basic identity).
@@ -41,9 +43,29 @@ class SessionStore {
     _segment = prefs.getString(_segmentKey);
   }
 
+  /// Una sesión con el token vencido no cuenta: se borra para volver al login.
   static Future<bool> isLoggedIn() async {
     await load();
+    if (isExpired(_token)) await clear();
     return _token != null && _token!.isNotEmpty;
+  }
+
+  /// True si el JWT trae `exp` y ya pasó. Si no se puede leer, no se da por
+  /// vencido: el backend decide.
+  static bool isExpired(String? token, {DateTime? now}) {
+    final parts = token?.split('.') ?? const [];
+    if (parts.length != 3) return false;
+    try {
+      final payload = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      final exp = payload is Map ? payload['exp'] : null;
+      if (exp is! num) return false;
+      final expiresAt =
+          DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000, isUtc: true);
+      return !(now ?? DateTime.now()).isBefore(expiresAt);
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<String> name() async =>
