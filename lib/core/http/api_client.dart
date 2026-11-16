@@ -106,7 +106,10 @@ class ApiClient {
       return decoded;
     }
 
-    if (res.statusCode == 401) {
+    // Con el token vencido el backend responde 403 fuera de dosimetría, así
+    // que se trata igual que un 401.
+    if (res.statusCode == 401 ||
+        (res.statusCode == 403 && SessionStore.isExpired(SessionStore.token))) {
       // Token invalid/expired or the account was deactivated/deleted → sign out.
       _forceSignOut();
       throw ApiException('Session expired. Please sign in again.',
