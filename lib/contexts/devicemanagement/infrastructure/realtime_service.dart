@@ -67,9 +67,14 @@ class RealtimeService {
     _activating = true;
     try {
       _userId = await SessionStore.userId();
+      // El backend exige el JWT en el CONNECT de STOMP.
+      final token = SessionStore.token;
       final client = StompClient(
         config: StompConfig(
           url: ApiConfig.wsUrl,
+          stompConnectHeaders: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
           reconnectDelay: const Duration(seconds: 5),
           onConnect: _onConnect,
           onWebSocketError: (dynamic error) =>
