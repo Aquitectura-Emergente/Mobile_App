@@ -4,14 +4,16 @@ import 'package:flutter/foundation.dart';
 ///
 /// - Debug (default): http://10.0.2.2:8080/api — the Android emulator reaches
 ///   the host PC at 10.0.2.2 (its own `localhost` is the emulator itself).
-/// - Release: el backend de produccion (Oracle Cloud + Caddy).
+/// - Release: el backend de produccion (Azure Container Apps). Escala a cero:
+///   la primera peticion tras un rato inactivo tarda ~60 s en responder.
 /// - Override for any build (e.g. physical device on the same Wi-Fi):
 ///     flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8080/api
 class ApiConfig {
   static const String _override = String.fromEnvironment('API_BASE_URL');
 
   static const String _debugDefault = 'http://10.0.2.2:8080/api';
-  static const String _production = 'https://emsafe.duckdns.org/api';
+  static const String _production =
+      'https://emsafe-backend.kindground-c19db19d.eastus2.azurecontainerapps.io/api';
 
   static String get baseUrl {
     if (_override.isNotEmpty) return _override;
