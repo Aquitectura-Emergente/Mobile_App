@@ -1,6 +1,8 @@
 import '../../../core/http/api_client.dart';
 import '../domain/client_profile.dart';
+import '../domain/user_segment.dart';
 import '../infrastructure/iam_api.dart';
+import '../infrastructure/segment_probe.dart';
 import '../infrastructure/session_store.dart';
 
 /// Punto de entrada del contexto iam para las pantallas.
@@ -29,6 +31,25 @@ class AuthFacade {
       role: role,
       userId: (data['userId'] as num).toInt(),
     );
+    await refreshSegment();
+  }
+
+  /// Hogar u operario. Si aún no se sabe, lo detecta; ante la duda, hogar.
+  static Future<UserSegment> segment() async =>
+      UserSegment.fromName(await SessionStore.segment()) ??
+      await refreshSegment();
+
+  /// Segmento guardado, sin ir a la red (para el arranque).
+  static Future<UserSegment> storedSegment() async =>
+      UserSegment.fromName(await SessionStore.segment()) ?? UserSegment.home;
+
+  /// Vuelve a detectar el segmento y lo guarda si se pudo decidir.
+  static Future<UserSegment> refreshSegment() async {
+    // El admin entra para probar la app del hogar.
+    if (await SessionStore.role() == MobileRole.admin) return UserSegment.home;
+    final detected = await SegmentProbe.detect();
+    if (detected != null) await SessionStore.saveSegment(detected.name);
+    return detected ?? UserSegment.home;
   }
 
   static Future<void> register({

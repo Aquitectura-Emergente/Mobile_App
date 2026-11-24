@@ -11,6 +11,7 @@ import '../screens/etapa1/screen_8_onboarding_final_step.dart';
 
 import 'etapa2_routes.dart';
 import 'etapa3_routes.dart';
+import 'operator_routes.dart';
 
 class AppRoutes {
   static const String splash1 = '/etapa1/screen1/splash_official_brand';
@@ -40,5 +41,6 @@ class AppRoutes {
     onboardingFinalStep: (context) => const OnboardingFinalStepScreen(),
     ...Etapa2Routes.routes,
     ...Etapa3Routes.routes,
+    ...OperatorRoutes.routes,
   };
 }

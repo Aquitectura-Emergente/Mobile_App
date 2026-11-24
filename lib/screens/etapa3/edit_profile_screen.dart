@@ -87,7 +87,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 : tr('set_errLoad');
             return Etapa3Error(
               message: msg,
-              onRetry: () => setState(() => _future = _load()),
+              onRetry: () {
+                final future = _load();
+                setState(() { _future = future; });
+              },
             );
           }
           return Column(

@@ -1,11 +1,11 @@
 import '../../../core/http/json.dart';
-import '../../iottelemetry/domain/client_device.dart';
+import '../../devicemanagement/domain/client_device.dart';
 import 'client_reading.dart';
 import 'radiation_level.dart';
 
 /// Resumen que abre la app: estado de la flota del cliente y su exposicion.
 ///
-/// Referencia `ClientDevice`, de iottelemetry. Es un cruce de contextos
+/// Referencia `ClientDevice`, de devicemanagement. Es un cruce de contextos
 /// deliberado (DDD pragmatico): el backend ya lo devuelve agregado en un solo
 /// DTO y partirlo obligaria a dos llamadas para pintar una pantalla.
 class ClientDashboard {
