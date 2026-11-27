@@ -58,6 +58,10 @@ class _LoginScreenState extends State<LoginScreen> {
         } else if (m.contains('locked')) {
           _issue = _LoginIssue.locked;
           _error = e.message;
+        } else if (m.contains('web portal')) {
+          // Admin de pruebas aparte, el responsable de SSO y el técnico usan el portal web.
+          _issue = _LoginIssue.other;
+          _error = tr('m_loginPortalOnly');
         } else {
           _issue = _LoginIssue.other;
           _error = e.statusCode == 401 || m.contains('invalid') ? tr('m_loginInvalid') : (e.statusCode == null ? tr('m_errNetwork') : e.message);

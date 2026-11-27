@@ -245,6 +245,7 @@ const Map<String, String> mEn = {
   'm_createAccount': 'Create an account',
   'm_operatorLoginNote': 'Industrial operators sign in with the credentials provided by their company.',
   'm_loginPending': 'Your account is waiting for an administrator to approve it. You will be able to sign in once it is activated.',
+  'm_loginPortalOnly': 'This account belongs to the EMSafe web portal (SSO officer or technician). The app is for home clients and plant operators.',
   'm_loginInvalid': 'Incorrect email or password.',
   'm_whatNext': 'What happens next',
 
@@ -673,6 +674,7 @@ const Map<String, String> mEs = {
   'm_createAccount': 'Crear una cuenta',
   'm_operatorLoginNote': 'Los operarios industriales entran con las credenciales que les entrega su empresa.',
   'm_loginPending': 'Tu cuenta está esperando la aprobación de un administrador. Podrás entrar en cuanto la active.',
+  'm_loginPortalOnly': 'Esta cuenta es del portal web de EMSafe (responsable SSO o técnico). La app es para clientes del hogar y operarios de planta.',
   'm_loginInvalid': 'Correo o contraseña incorrectos.',
   'm_whatNext': 'Qué sigue',
 
