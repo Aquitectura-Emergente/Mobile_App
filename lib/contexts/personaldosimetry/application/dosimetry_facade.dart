@@ -27,6 +27,19 @@ class DosimetryFacade {
     return page.content;
   }
 
+  /// Todas las lecturas de una jornada (hasta [maxPages] páginas), de la más
+  /// antigua a la más reciente.
+  static Future<List<PersonalReading>> allShiftReadings(String sessionId,
+      {int maxPages = 10}) async {
+    final first = await shiftReadings(sessionId);
+    final all = [...first.content];
+    final pages = first.totalPages.clamp(1, maxPages);
+    for (var p = 1; p < pages; p++) {
+      all.addAll((await shiftReadings(sessionId, page: p)).content);
+    }
+    return all;
+  }
+
   static Future<PageOf<ExposureSession>> history({int page = 0}) async {
     final workerId = await SessionStore.userId();
     if (workerId == null) {

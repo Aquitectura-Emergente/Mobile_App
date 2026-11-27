@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'app_i18n_m.dart';
 import 'app_settings_store.dart';
 
 /// Lightweight EN/ES i18n for the mobile app (mirrors the web's LanguageService).
@@ -22,8 +23,8 @@ class I18n {
   static void toggle() => set(lang.value == 'en' ? 'es' : 'en');
 
   static String t(String key) {
-    final table = lang.value == 'es' ? _es : _en;
-    return table[key] ?? _en[key] ?? key;
+    final es = lang.value == 'es';
+    return (es ? mEs[key] : mEn[key]) ?? (es ? _es : _en)[key] ?? mEn[key] ?? _en[key] ?? key;
   }
 }
 
@@ -67,6 +68,13 @@ const Map<String, String> _en = {
   'op_noDosimeter': 'You have no dosimeter assigned in this shift',
   'op_noDosimeterHint': 'Ask your OSH lead to link one at the start of your shift.',
   'op_consumed': 'of your shift limit',
+  'ds_notMetrology': 'Preventive monitoring. Not a certified measuring instrument.',
+  'op_statusNormalHint': 'Your exposure is within the limit set by Occupational Safety.',
+  'op_statusWarningHint': 'You are approaching your shift limit.',
+  'op_statusExceededHint': 'The shift limit set by Occupational Safety has been exceeded.',
+  'op_doseBar': 'Consumed vs. limit',
+  'ds_live': 'Live',
+  'ds_stale': 'Not updated',
   'op_accumulated': 'Accumulated',
   'op_limit': 'Limit',
   'op_remaining': 'Remaining',
@@ -389,6 +397,13 @@ const Map<String, String> _es = {
   'op_noDosimeter': 'No tienes un dosímetro asignado en este turno',
   'op_noDosimeterHint': 'Pide a tu responsable de SSO que te vincule uno al iniciar el turno.',
   'op_consumed': 'de tu límite de jornada',
+  'ds_notMetrology': 'Monitoreo preventivo. No es un instrumento de medición certificado.',
+  'op_statusNormalHint': 'Tu exposición está dentro del límite fijado por Seguridad Ocupacional.',
+  'op_statusWarningHint': 'Te acercas al límite de tu jornada.',
+  'op_statusExceededHint': 'Se superó el límite de jornada fijado por Seguridad Ocupacional.',
+  'op_doseBar': 'Consumido frente al límite',
+  'ds_live': 'En vivo',
+  'ds_stale': 'Sin actualizar',
   'op_accumulated': 'Acumulada',
   'op_limit': 'Límite',
   'op_remaining': 'Restante',
