@@ -1,411 +1,130 @@
-import 'dart:ui';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
+import '../../contexts/iam/infrastructure/session_store.dart';
+import '../../design_system/design_system.dart';
 import '../../routes/etapa2_routes.dart';
+import '../../services/app_i18n.dart';
+import '../shared/auth_scaffold.dart';
 
+enum _BioState { checking, ready, unavailable, authenticating, failed, noSession }
+
+/// Desbloqueo biométrico de una sesión ya iniciada en este dispositivo.
+///
+/// La biometría no sustituye al login: solo abre la sesión guardada cuando el
+/// usuario activó el bloqueo en Ajustes. Sin sesión, remite al acceso con
+/// correo y contraseña.
 class FaceIdAuthenticationScreen extends StatefulWidget {
   const FaceIdAuthenticationScreen({super.key});
 
   @override
-  State<FaceIdAuthenticationScreen> createState() =>
-      _FaceIdAuthenticationScreenState();
+  State<FaceIdAuthenticationScreen> createState() => _FaceIdAuthenticationScreenState();
 }
 
-class _FaceIdAuthenticationScreenState
-    extends State<FaceIdAuthenticationScreen> {
+class _FaceIdAuthenticationScreenState extends State<FaceIdAuthenticationScreen> {
   final LocalAuthentication _auth = LocalAuthentication();
-  bool _available = false;
-  bool _authenticating = false;
-  String _status = 'Checking biometric availability';
+  _BioState _state = _BioState.checking;
 
   @override
   void initState() {
     super.initState();
-    _checkBiometrics();
+    _check();
   }
 
-  Future<void> _checkBiometrics() async {
-    if (kIsWeb) {
-      setState(() {
-        _available = false;
-        _status = 'Web fallback available';
-      });
+  Future<void> _check() async {
+    if (!await SessionStore.isLoggedIn()) {
+      if (mounted) setState(() => _state = _BioState.noSession);
       return;
     }
-
+    if (kIsWeb) {
+      if (mounted) setState(() => _state = _BioState.unavailable);
+      return;
+    }
     try {
-      final canCheck = await _auth.canCheckBiometrics;
-      final supported = await _auth.isDeviceSupported();
-      final biometrics = await _auth.getAvailableBiometrics();
+      final ok = await _auth.canCheckBiometrics && await _auth.isDeviceSupported() && (await _auth.getAvailableBiometrics()).isNotEmpty;
       if (!mounted) return;
-      setState(() {
-        _available = canCheck && supported && biometrics.isNotEmpty;
-        _status = _available
-            ? 'Biometric authentication available'
-            : 'Use code verification';
-      });
+      setState(() => _state = ok ? _BioState.ready : _BioState.unavailable);
+      if (ok) _authenticate();
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _available = false;
-        _status = 'Use code verification';
-      });
+      if (mounted) setState(() => _state = _BioState.unavailable);
     }
   }
 
   Future<void> _authenticate() async {
-    if (!_available) {
-      Navigator.of(context).pushNamed(Etapa2Routes.verifyIdentity);
-      return;
-    }
-
-    setState(() {
-      _authenticating = true;
-      _status = 'Authenticating';
-    });
-
+    setState(() => _state = _BioState.authenticating);
     try {
-      final authenticated = await _auth.authenticate(
-        localizedReason: 'Authenticate to register your EmSafe profile',
+      final ok = await _auth.authenticate(
+        localizedReason: tr('m_bioReason'),
         biometricOnly: false,
         persistAcrossBackgrounding: true,
       );
       if (!mounted) return;
-      setState(() {
-        _authenticating = false;
-        _status = authenticated
-            ? 'Authentication successful'
-            : 'Authentication failed';
-      });
-      if (authenticated) {
-        Navigator.of(context).pushNamed(Etapa2Routes.verifyIdentity);
+      if (ok) {
+        Navigator.of(context).pushReplacementNamed(Etapa2Routes.goingToDashboard);
+      } else {
+        setState(() => _state = _BioState.failed);
       }
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _authenticating = false;
-        _status = 'Authentication failed';
-      });
+      if (mounted) setState(() => _state = _BioState.failed);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final scale = (size.width / 390).clamp(0.85, 1.15);
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0F19),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: EdgeInsets.symmetric(
-                horizontal: 24 * scale,
-                vertical: 24 * scale,
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight - (48 * scale),
-                ),
-                child: Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16 * scale),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                      child: Container(
-                        constraints: const BoxConstraints(maxWidth: 420),
-                        padding: EdgeInsets.all(24 * scale),
-                        decoration: BoxDecoration(
-                          color: const Color(0x0D161B22),
-                          borderRadius: BorderRadius.circular(16 * scale),
-                          border: Border.all(
-                            color: const Color.fromRGBO(140, 144, 161, 0.15),
-                            width: 1.2,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 40 * scale,
-                              offset: Offset(0, 20 * scale),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: _StatusChip(
-                                text: _available ? 'Available' : 'Fallback',
-                                color: _available
-                                    ? const Color(0xFF65DAFF)
-                                    : const Color(0xFFB2C5FF),
-                                scale: scale,
-                              ),
-                            ),
-                            SizedBox(height: 18 * scale),
-                            Text(
-                              'Face ID Authentication',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: 'Sora',
-                                fontWeight: FontWeight.w600,
-                                fontSize: 28 * scale,
-                                height: 1.1,
-                                letterSpacing: -0.6 * scale,
-                                color: const Color(0xFFE1E2EE),
-                              ),
-                            ),
-                            SizedBox(height: 8 * scale),
-                            Text(
-                              'Use local authentication or continue with code verification.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 16 * scale,
-                                height: 1.5,
-                                color: const Color(0xFFC2C6D8),
-                              ),
-                            ),
-                            SizedBox(height: 10 * scale),
-                            Text(
-                              _status,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: 'JetBrains Mono',
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12 * scale,
-                                color: const Color(0xFF65DAFF),
-                              ),
-                            ),
-                            SizedBox(height: 22 * scale),
-                            _ScannerCard(scale: scale, active: _authenticating),
-                            SizedBox(height: 18 * scale),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _ReadoutBox(
-                                    scale: scale,
-                                    color: const Color(0xFF65DAFF),
-                                    label: 'BIOMETRIC',
-                                    value: _available ? 'Ready' : 'Code',
-                                  ),
-                                ),
-                                SizedBox(width: 12 * scale),
-                                Expanded(
-                                  child: _ReadoutBox(
-                                    scale: scale,
-                                    color: const Color(0xFFB2C5FF),
-                                    label: 'STATUS',
-                                    value: _authenticating ? 'Scan' : 'Idle',
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: 18 * scale),
-                            SizedBox(
-                              height: 56 * scale,
-                              child: TextButton(
-                                onPressed: _authenticating
-                                    ? null
-                                    : _authenticate,
-                                style: TextButton.styleFrom(
-                                  backgroundColor: const Color(0xFFB2C5FF),
-                                  disabledBackgroundColor: const Color(
-                                    0xFFB2C5FF,
-                                  ).withValues(alpha: 0.45),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      12 * scale,
-                                    ),
-                                  ),
-                                ),
-                                child: Text(
-                                  _available
-                                      ? 'Register Face'
-                                      : 'Continue with Code',
-                                  style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 16 * scale,
-                                    color: const Color(0xFF002B73),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
+  /// Entrar con contraseña cierra la sesión guardada.
+  Future<void> _usePassword() async {
+    await SessionStore.clear();
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(Etapa2Routes.login, (r) => false);
   }
-}
-
-class _ScannerCard extends StatelessWidget {
-  const _ScannerCard({required this.scale, required this.active});
-
-  final double scale;
-  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(16 * scale),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B24),
-        borderRadius: BorderRadius.circular(12 * scale),
-        border: Border.all(
-          color: const Color.fromRGBO(66, 70, 85, 0.3),
-          width: 2,
-        ),
-      ),
-      child: AspectRatio(
-        aspectRatio: 1,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: 220 * scale,
-              height: 220 * scale,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFFFFFF), Color(0xFFECF0FF)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-                borderRadius: BorderRadius.circular(12 * scale),
-              ),
-              child: Icon(
-                Icons.person,
-                size: 96 * scale,
-                color: const Color(0xFFB2C5FF).withValues(alpha: 0.6),
-              ),
-            ),
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 450),
-              curve: Curves.easeInOut,
-              left: 0,
-              right: 0,
-              top: active ? 150 * scale : 70 * scale,
-              child: Container(
-                height: 6 * scale,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color.fromRGBO(101, 218, 255, 0),
-                      Color(0xFF65DAFF),
-                      Color.fromRGBO(101, 218, 255, 0),
-                    ],
-                  ),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0xFF65DAFF), blurRadius: 20),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.text,
-    required this.color,
-    required this.scale,
-  });
-
-  final String text;
-  final Color color;
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 12 * scale,
-        vertical: 6 * scale,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12 * scale),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontFamily: 'JetBrains Mono',
-          fontWeight: FontWeight.w700,
-          fontSize: 11 * scale,
-        ),
-      ),
-    );
-  }
-}
-
-class _ReadoutBox extends StatelessWidget {
-  const _ReadoutBox({
-    required this.scale,
-    required this.color,
-    required this.label,
-    required this.value,
-  });
-
-  final double scale;
-  final Color color;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(16 * scale),
-      decoration: BoxDecoration(
-        color: const Color.fromRGBO(22, 27, 34, 0.6),
-        borderRadius: BorderRadius.circular(10 * scale),
-        border: Border.all(color: const Color.fromRGBO(66, 70, 85, 0.3)),
+    final c = context.ems;
+    final (icon, tone, title, msg) = switch (_state) {
+      _BioState.checking => (PhosphorIconsRegular.fingerprint, EmsTone.neutral, tr('m_bioChecking'), tr('m_bioCheckingMsg')),
+      _BioState.ready || _BioState.authenticating => (PhosphorIconsRegular.fingerprint, EmsTone.primary, tr('m_bioReady'), tr('m_bioReadyMsg')),
+      _BioState.failed => (PhosphorIconsRegular.xCircle, EmsTone.danger, tr('m_bioFailed'), tr('m_bioFailedMsg')),
+      _BioState.unavailable => (PhosphorIconsRegular.warningCircle, EmsTone.warning, tr('m_bioUnavailable'), tr('m_bioUnavailableMsg')),
+      _BioState.noSession => (PhosphorIconsRegular.lockKey, EmsTone.info, tr('m_bioNoSession'), tr('m_bioNoSessionMsg')),
+    };
+    final t = emsTone(context, tone);
+    return AuthScaffold(
+      showBack: _state == _BioState.noSession,
+      eyebrow: tr('m_bioEyebrow'),
+      title: tr('m_bioTitle'),
+      bottom: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_state == _BioState.failed || _state == _BioState.ready)
+            EmsButton(label: tr('m_bioRetry'), icon: PhosphorIconsRegular.fingerprint, onPressed: _authenticate),
+          if (_state == _BioState.failed || _state == _BioState.ready) const SizedBox(height: EmsSpace.s3),
+          EmsButton(
+            label: _state == _BioState.noSession ? tr('m_goToLogin') : tr('m_usePassword'),
+            kind: _state == _BioState.noSession || _state == _BioState.unavailable ? EmsButtonKind.primary : EmsButtonKind.secondary,
+            icon: PhosphorIconsRegular.password,
+            onPressed: _state == _BioState.checking || _state == _BioState.authenticating ? null : _usePassword,
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'JetBrains Mono',
-              fontWeight: FontWeight.w500,
-              fontSize: 11 * scale,
-              color: const Color(0xFFC2C6D8),
-              letterSpacing: 1.1 * scale,
+          const SizedBox(height: EmsSpace.s5),
+          Container(
+            width: 132,
+            height: 132,
+            decoration: BoxDecoration(
+              color: t.bg,
+              borderRadius: BorderRadius.circular(EmsRadius.lg),
+              border: Border.all(color: t.border, width: 1.5),
             ),
+            child: _state == _BioState.authenticating || _state == _BioState.checking
+                ? Padding(padding: const EdgeInsets.all(44), child: CircularProgressIndicator(strokeWidth: 2, color: t.fg))
+                : Icon(icon, size: 60, color: t.fg),
           ),
-          SizedBox(height: 6 * scale),
-          Text(
-            value,
-            style: TextStyle(
-              fontFamily: 'JetBrains Mono',
-              fontWeight: FontWeight.w600,
-              fontSize: 20 * scale,
-              color: color,
-            ),
-          ),
+          const SizedBox(height: EmsSpace.s7),
+          Text(title, textAlign: TextAlign.center, style: context.type.h3),
+          const SizedBox(height: EmsSpace.s3),
+          Text(msg, textAlign: TextAlign.center, style: context.type.body.copyWith(color: c.textSecondary)),
         ],
       ),
     );

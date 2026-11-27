@@ -36,8 +36,7 @@ class AppRoutes {
     onboardingSmartHomeProtection: (context) =>
         const OnboardingSmartHomeProtectionScreen(),
     pairingSensors: (context) => const PairingSensorsScreen(),
-    // Interceptado en main.dart con PageRouteBuilder(opaque:false) para efecto cristal.
-    // pairYourSensor: (context) => const PairYourSensorScreen(),
+    pairYourSensor: (context) => const PairingSensorsScreen(),
     onboardingFinalStep: (context) => const OnboardingFinalStepScreen(),
     ...Etapa2Routes.routes,
     ...Etapa3Routes.routes,

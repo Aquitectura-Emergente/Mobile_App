@@ -9,7 +9,6 @@ import 'services/onboarding_flow_store.dart';
 import 'contexts/iam/infrastructure/session_store.dart';
 import 'contexts/devicemanagement/infrastructure/realtime_service.dart';
 import 'theme/app_theme.dart';
-import 'screens/etapa1/screen_7_pair_your_sensor.dart';
 import 'routes/home_route.dart';
 
 Future<void> main() async {
@@ -22,7 +21,10 @@ Future<void> main() async {
   // Otherwise: returning user (account created) → login; brand-new user → splash.
   final String initialRoute;
   if (await SessionStore.isLoggedIn()) {
-    initialRoute = await storedHomeRoute();
+    // Con el bloqueo biométrico activado, se desbloquea antes de entrar.
+    initialRoute = AppSettingsStore.biometricLock
+        ? Etapa2Routes.faceIdAuthentication
+        : await storedHomeRoute();
   } else if (await OnboardingFlowStore.hasCreatedAccount()) {
     initialRoute = Etapa2Routes.login;
   } else {
@@ -52,18 +54,6 @@ class MyApp extends StatelessWidget {
       builder: (context, child) =>
           DangerAlertGate(child: child ?? const SizedBox.shrink()),
       routes: AppRoutes.routes,
-      onGenerateRoute: (settings) {
-        if (settings.name == AppRoutes.pairYourSensor) {
-          return PageRouteBuilder(
-            settings: settings,
-            opaque: false, // Mantiene viva la pantalla anterior debajo
-            pageBuilder: (context, _, _) => const PairYourSensorScreen(),
-          );
-        }
-
-        // Fallback: deja que MaterialApp resuelva con los routes existentes.
-        return null;
-      },
     );
   }
 }

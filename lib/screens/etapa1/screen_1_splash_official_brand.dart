@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../routes/app_routes.dart';
 import '../../routes/etapa2_routes.dart';
-import '../../theme/app_theme.dart';
+import '../../design_system/design_system.dart';
+import '../../services/app_i18n.dart';
 
 class SplashOfficialBrandScreen extends StatelessWidget {
   const SplashOfficialBrandScreen({super.key});
@@ -97,212 +98,114 @@ class _SplashContentState extends State<_SplashContent>
 
   @override
   Widget build(BuildContext context) {
+    final c = context.ems;
     return Scaffold(
-      backgroundColor: AppTheme.darkNavy,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppTheme.darkNavy, const Color(0xFF101C2E)],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
+      backgroundColor: c.chrome,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(EmsSpace.s7, EmsSpace.s7, EmsSpace.s7, EmsSpace.s5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ScaleTransition(
+                scale: _logoScale,
+                alignment: Alignment.centerLeft,
+                child: const EmsBrandMark(size: 40, wordmark: true, color: EmsDarkColors.chromeText),
+              ),
+              const Spacer(),
+              FadeTransition(
+                opacity: _textOpacity,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.only(left: EmsSpace.s4),
+                      decoration: const BoxDecoration(
+                        border: Border(left: BorderSide(color: EmsDarkColors.chromeAccent, width: EmsBorder.rail)),
+                      ),
+                      child: Text(tr('m_splashEyebrow').toUpperCase(), style: context.type.eyebrow.copyWith(color: c.chromeTextMuted)),
+                    ),
+                    const SizedBox(height: EmsSpace.s6),
+                    Text(
+                      tr('m_splash1').toUpperCase(),
+                      style: context.type.display.copyWith(color: c.chromeText, fontSize: 38, height: 1.05),
+                    ),
+                    Text(
+                      tr('m_splash2').toUpperCase(),
+                      style: context.type.display.copyWith(color: c.chromeTextMuted, fontSize: 38, height: 1.05),
+                    ),
+                    const SizedBox(height: EmsSpace.s8),
+                    _ExposureScale(controller: _connectionController),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  FadeTransition(
+                    opacity: Tween<double>(begin: 0.35, end: 1).animate(_connectionController),
+                    child: Container(width: 8, height: 8, decoration: const BoxDecoration(shape: BoxShape.circle, color: EmsDarkColors.liveSignal)),
+                  ),
+                  const SizedBox(width: EmsSpace.s3),
+                  Text(tr('m_splashLoading').toUpperCase(), style: context.type.monoSm.copyWith(color: c.chromeTextMuted)),
+                ],
+              ),
+              const SizedBox(height: EmsSpace.s5),
+              Divider(color: c.chromeBorder, height: 1),
+              const SizedBox(height: EmsSpace.s3),
+              Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 10),
-                  ScaleTransition(
-                    scale: _logoScale,
-                    child: Container(
-                      width: 220,
-                      height: 220,
-                      decoration: BoxDecoration(
-                        color: AppTheme.darkBg,
-                        borderRadius: BorderRadius.circular(40),
-                        border: Border.all(
-                          color: AppTheme.primaryCyan.withValues(alpha: 0.22),
-                          width: 1.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.primaryCyan.withValues(alpha: 0.18),
-                            blurRadius: 40,
-                            spreadRadius: 8,
-                          ),
-                        ],
-                      ),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            width: 160,
-                            height: 160,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(32),
-                              border: Border.all(
-                                color: AppTheme.primaryCyan.withValues(
-                                  alpha: 0.35,
-                                ),
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(28),
-                            child: Image.asset(
-                              'assets/IMG_ETAPA_1/logo.jpeg',
-                              width: 140,
-                              height: 140,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  Flexible(
+                    child: Text('${tr('m_haveAccountQ')} ', style: context.type.bodySm.copyWith(color: c.chromeTextMuted)),
                   ),
-                  const SizedBox(height: 40),
-                  FadeTransition(
-                    opacity: _textOpacity,
-                    child: Column(
-                      children: [
-                        const Text(
-                          'EmSafe',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 44,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Container(
-                          width: 80,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryBlue,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        const SizedBox(height: 46),
-                        Text(
-                          'MONITOR YOUR ENVIRONMENT.',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.86),
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 1.5,
-                            height: 1.8,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'PROTECT YOUR FUTURE.',
-                          style: const TextStyle(
-                            color: AppTheme.primaryBlue,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.5,
-                            height: 1.8,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 50),
-                        ScaleTransition(
-                          scale: Tween<double>(begin: 0.82, end: 1.0).animate(
-                            CurvedAnimation(
-                              parent: _connectionController,
-                              curve: Curves.easeInOut,
-                            ),
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 14,
-                              horizontal: 18,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.darkBg.withValues(alpha: 0.92),
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(
-                                color: AppTheme.primaryBlue.withValues(
-                                  alpha: 0.18,
-                                ),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: AppTheme.primaryBlue,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                const Text(
-                                  'SECURING CONNECTION ...',
-                                  style: TextStyle(
-                                    color: AppTheme.primaryBlue,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        Wrap(
-                          alignment: WrapAlignment.center,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Text(
-                                'Already have an account? ',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.7),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: _skipOnboardingAndGoToStage2,
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppTheme.primaryCyan,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 8,
-                                ),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                visualDensity: VisualDensity.compact,
-                                textStyle: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              child: const Text('Sign In'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                  TextButton(
+                    style: TextButton.styleFrom(foregroundColor: c.chromeAccent),
+                    onPressed: _skipOnboardingAndGoToStage2,
+                    child: Text(tr('m_signIn')),
                   ),
                 ],
               ),
-            ),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Escala de exposición animada: zonas segura / advertencia / límite.
+class _ExposureScale extends StatelessWidget {
+  const _ExposureScale({required this.controller});
+  final AnimationController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.ems;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(height: 14, child: CustomPaint(painter: EmsScalePainter(c.chromeTextMuted, major: 4, minor: 40))),
+        const SizedBox(height: EmsSpace.s2),
+        SizedBox(
+          height: 4,
+          child: Row(
+            children: [
+              Expanded(flex: 60, child: Container(color: c.safeSignal)),
+              Expanded(flex: 25, child: Container(color: c.warningSignal)),
+              Expanded(flex: 15, child: Container(color: c.dangerSignal)),
+            ],
+          ),
+        ),
+        const SizedBox(height: EmsSpace.s3),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            for (final l in const ['0', '25', '50', '75', '100%'])
+              Text(l, style: context.type.monoSm.copyWith(color: c.chromeTextMuted)),
+          ],
+        ),
+      ],
     );
   }
 }
