@@ -5,7 +5,6 @@ import 'package:stomp_dart_client/stomp_dart_client.dart';
 
 import '../../../config/api_config.dart';
 import '../../../core/http/api_client.dart';
-import '../../../screens/etapa3/etapa3_components.dart';
 import '../../../services/app_i18n.dart';
 import '../../../services/app_navigator.dart';
 import '../../../services/app_settings_store.dart';
@@ -14,6 +13,7 @@ import '../application/device_facade.dart';
 import '../domain/client_device.dart';
 import '../domain/plug_status.dart';
 import 'notification_service.dart';
+import '../../../design_system/design_system.dart';
 
 /// STOMP/WebSocket client for live telemetry.
 ///
@@ -29,6 +29,9 @@ class RealtimeService {
 
   /// Bumped on every reading received; listen + debounce to refresh UI.
   static final ValueNotifier<int> readingTick = ValueNotifier<int>(0);
+
+  /// Sube con cada alerta en vivo del operario, para refrescar sus pantallas.
+  static final ValueNotifier<int> workerAlertTick = ValueNotifier<int>(0);
 
   /// Raw payload of the last reading received (ReadingDto JSON).
   static Map<String, dynamic>? lastReading;
@@ -105,6 +108,10 @@ class RealtimeService {
     // Solo el tópico propio: el global trae lecturas de todos los clientes.
     final userId = _userId;
     if (userId == null) return;
+    if (SessionStore.isOperator) {
+      _subscribeWorkerAlerts(userId);
+      return;
+    }
     final destination = '/topic/clients/$userId/readings';
     debugPrint('[EMSafe][WS] connected → $destination');
     _client?.subscribe(
@@ -124,6 +131,29 @@ class RealtimeService {
         } catch (_) {
           // Ignore malformed frames — next reading will arrive shortly.
         }
+      },
+    );
+  }
+
+  /// Alertas del operario: el backend las empuja apenas se generan.
+  static void _subscribeWorkerAlerts(int userId) {
+    final destination = '/topic/workers/$userId/alerts';
+    debugPrint('[EMSafe][WS] connected → $destination');
+    _client?.subscribe(
+      destination: destination,
+      callback: (StompFrame frame) {
+        final body = frame.body;
+        if (body == null || body.isEmpty) return;
+        try {
+          final data = jsonDecode(body) as Map<String, dynamic>;
+          workerAlertTick.value++;
+          if (AppSettingsStore.pushAlerts) {
+            NotificationService.showAlert(
+              (data['title'] ?? tr('notif_dangerTitle')).toString(),
+              (data['description'] ?? '').toString(),
+            );
+          }
+        } catch (_) {}
       },
     );
   }
@@ -202,7 +232,7 @@ class _DangerAlertGateState extends State<DangerAlertGate> {
       final cut = await showDialog<bool>(
         context: ctx,
         barrierDismissible: false,
-        barrierColor: Colors.black.withValues(alpha: 0.6),
+        barrierColor: ctx.ems.scrim,
         builder: (dialogCtx) => _DangerDialog(name: name, value: value),
       );
       if (cut == true) await sendPlugOrder(plug, PlugPower.off);
@@ -257,135 +287,68 @@ class _DangerDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const red = Etapa3Palette.red;
+    final c = context.ems;
     return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-        decoration: BoxDecoration(
-          color: Etapa3Palette.panel,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: red.withValues(alpha: 0.45)),
-          boxShadow: [
-            BoxShadow(
-              color: red.withValues(alpha: 0.22),
-              blurRadius: 40,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: red.withValues(alpha: 0.14),
-                border: Border.all(color: red.withValues(alpha: 0.5), width: 1.5),
-              ),
-              child: const Icon(Icons.warning_amber_rounded,
-                  color: red, size: 34),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              tr('danger_modalTitle'),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Etapa3Palette.text,
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: red.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      name,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Etapa3Palette.text,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '${value?.toStringAsFixed(1) ?? '--'} µT',
-                    style: const TextStyle(
-                      color: red,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              tr('danger_modalBody'),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Etapa3Palette.muted,
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
+      backgroundColor: c.surface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: EmsSpace.s7),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(EmsRadius.lg), side: BorderSide(color: c.dangerBorder)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Banda crítica: el único relleno sólido rojo de la app.
+          Container(
+            color: c.dangerSignal,
+            padding: const EdgeInsets.fromLTRB(EmsSpace.s6, EmsSpace.s4, EmsSpace.s6, EmsSpace.s4),
+            child: Row(
               children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Etapa3Palette.muted,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        side: const BorderSide(color: Etapa3Palette.stroke),
-                      ),
-                    ),
-                    child: Text(
-                      tr('danger_keepOn'),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    child: Text(tr('danger_cutPower')),
-                  ),
-                ),
+                const Icon(PhosphorIconsRegular.warningOctagon, color: Colors.white, size: 22),
+                const SizedBox(width: EmsSpace.s3),
+                Expanded(child: Text(tr('m_lvDanger').toUpperCase(), style: context.type.eyebrow.copyWith(color: Colors.white))),
               ],
             ),
-          ],
-        ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(EmsSpace.s6, EmsSpace.s6, EmsSpace.s6, EmsSpace.s6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(tr('danger_modalTitle'), style: context.type.h3),
+                const SizedBox(height: EmsSpace.s5),
+                EmsRailBox(
+                  color: c.dangerSubtle,
+                  borderColor: c.dangerBorder,
+                  railColor: c.dangerSignal,
+                  padding: const EdgeInsets.all(EmsSpace.s4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Expanded(child: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.type.body.copyWith(fontWeight: FontWeight.w600))),
+                      const SizedBox(width: EmsSpace.s3),
+                      Text(value?.toStringAsFixed(1) ?? '—', style: context.type.metricMd.copyWith(color: c.danger)),
+                      const SizedBox(width: 3),
+                      Text('µT', style: context.type.monoSm),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: EmsSpace.s4),
+                Text(tr('danger_modalBody'), style: context.type.body.copyWith(color: c.textSecondary)),
+                const SizedBox(height: EmsSpace.s7),
+                EmsButton(
+                  label: tr('danger_cutPower'),
+                  icon: PhosphorIconsRegular.power,
+                  kind: EmsButtonKind.danger,
+                  onPressed: () => Navigator.of(context).pop(true),
+                ),
+                const SizedBox(height: EmsSpace.s3),
+                EmsButton(label: tr('danger_keepOn'), kind: EmsButtonKind.secondary, onPressed: () => Navigator.of(context).pop(false)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
