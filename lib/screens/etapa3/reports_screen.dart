@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
 import '../../contexts/radiationmonitoring/domain/client_report.dart';
 import '../../core/http/api_client.dart';
+import '../../design_system/design_system.dart';
 import '../../services/app_i18n.dart';
-import 'etapa3_components.dart';
-import 'subpage_scaffold.dart';
+import '../../services/ems_format.dart';
+import '../shared/measurement_overview.dart';
+import 'home_presenters.dart';
 
-/// Monthly / yearly radiation reports with trend chart (US19, US20, US22).
-/// Backed by GET /api/client/reports?period=month|year.
+/// Informes agregados del hogar (mes: últimos 30 días; año: 12 meses).
+/// Cada tramo trae promedio y pico ya calculados por el backend.
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
 
@@ -17,65 +19,57 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  String _period = 'month';
-  late Future<ClientReport> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = MonitoringFacade.report(_period);
-  }
+  String _period = ReportPeriod.month;
+  late Future<ClientReport> _future = MonitoringFacade.report(_period);
+  int? _selected;
 
   void _setPeriod(String period) {
     if (period == _period) return;
     setState(() {
       _period = period;
+      _selected = null;
       _future = MonitoringFacade.report(period);
     });
   }
 
-  void _reload() {
+  Future<void> _reload() async {
     final future = MonitoringFacade.report(_period);
     setState(() { _future = future; });
+    try {
+      await future;
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
-    return SubPageScaffold(
+    return EmsPage(
+      eyebrow: tr('m_reportsEyebrow'),
       title: tr('rep_title'),
-      subtitle: tr('rep_subtitle'),
+      onRefresh: _reload,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              _PeriodChip(
-                label: tr('rep_month'),
-                selected: _period == 'month',
-                onTap: () => _setPeriod('month'),
-              ),
-              const SizedBox(width: 10),
-              _PeriodChip(
-                label: tr('rep_year'),
-                selected: _period == 'year',
-                onTap: () => _setPeriod('year'),
-              ),
-            ],
+          EmsSegmented<String>(
+            value: _period,
+            segments: [(ReportPeriod.month, tr('rep_month')), (ReportPeriod.year, tr('rep_year'))],
+            onChanged: _setPeriod,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: EmsSpace.s5),
           FutureBuilder<ClientReport>(
             future: _future,
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Etapa3Loading();
-              }
+              if (snapshot.connectionState == ConnectionState.waiting) return const EmsLoadingBlock(lines: 2);
               if (snapshot.hasError) {
-                final msg = snapshot.error is ApiException
-                    ? (snapshot.error as ApiException).message
-                    : tr('rep_errLoad');
-                return Etapa3Error(message: msg, onRetry: _reload);
+                final msg = snapshot.error is ApiException ? (snapshot.error as ApiException).message : tr('rep_errLoad');
+                return EmsPanel(
+                  child: EmsEmptyState(
+                    kind: EmsEmptyKind.offline,
+                    title: msg,
+                    action: EmsButton(label: tr('common_retry'), kind: EmsButtonKind.secondary, expand: false, onPressed: _reload),
+                  ),
+                );
               }
-              return _buildReport(snapshot.data!);
+              return _content(context, snapshot.data!);
             },
           ),
         ],
@@ -83,264 +77,131 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  Widget _buildReport(ClientReport report) {
+  Widget _content(BuildContext context, ClientReport report) {
+    final c = context.ems;
+    if (report.isEmpty) {
+      return EmsPanel(padding: EdgeInsets.zero, child: EmsEmptyState(icon: PhosphorIconsRegular.chartBar, title: tr('rep_empty')));
+    }
+    final buckets = report.buckets;
+    final sel = _selected != null && _selected! < buckets.length ? buckets[_selected!] : null;
+    final step = (buckets.length / 4).ceil().clamp(1, buckets.length);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 360;
-            return GridView.count(
-              crossAxisCount: compact ? 1 : 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: compact ? 2.35 : 1.34,
-              children: [
-                MetricTile(
-                  icon: Icons.show_chart,
-                  label: tr('rep_avg'),
-                  value: etapa3Num(report.average, decimals: 1),
-                  caption: etapa3Unit,
-                  accent: Etapa3Palette.blue,
-                ),
-                MetricTile(
-                  icon: Icons.trending_up,
-                  label: tr('rep_peak'),
-                  value: etapa3Num(report.peak, decimals: 1),
-                  caption: etapa3Unit,
-                  accent: etapa3LevelColor(
-                      report.peak >= 200 ? 'danger'
-                          : report.peak >= 100 ? 'caution' : 'safe'),
-                ),
-                MetricTile(
-                  icon: Icons.dataset_outlined,
-                  label: tr('rep_readings'),
-                  value: report.totalReadings.toString(),
-                  caption: '',
-                  accent: Etapa3Palette.cyan,
-                ),
-                MetricTile(
-                  icon: Icons.notifications_active_outlined,
-                  label: tr('rep_alerts'),
-                  value: report.totalAlerts.toString().padLeft(2, '0'),
-                  caption: '',
-                  accent: report.totalAlerts > 0
-                      ? Etapa3Palette.amber
-                      : Etapa3Palette.green,
-                ),
-              ],
-            );
-          },
+        EmsPanel(
+          padding: const EdgeInsets.all(EmsSpace.s5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text((sel == null ? tr('m_periodPeak') : sel.label).toUpperCase(), style: context.type.eyebrow),
+              const SizedBox(height: EmsSpace.s2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    sel == null
+                        ? EmsFormat.value(report.peak)
+                        : (sel.readings == 0 ? '—' : '${EmsFormat.value(sel.average)} → ${EmsFormat.value(sel.peak)}'),
+                    style: context.type.metricLg.copyWith(color: emsTone(context, levelTone(sel?.peakLevel ?? report.peakLevel)).fg),
+                  ),
+                  const SizedBox(width: EmsSpace.s2),
+                  Text('µT', style: context.type.mono.copyWith(color: c.textTertiary)),
+                ],
+              ),
+              Text(
+                sel == null
+                    ? tr(_period == ReportPeriod.month ? 'm_last30d' : 'm_last12m')
+                    : (sel.readings == 0 ? tr('m_noReadings') : '${tr('rep_avg')} → ${tr('rep_peak')} · ${sel.readings} ${tr('m_readings')} · ${sel.alerts} ${tr('m_alertsLc')}'),
+                style: context.type.caption,
+              ),
+              const SizedBox(height: EmsSpace.s5),
+              EmsRangeChart(
+                bars: [
+                  for (final b in buckets)
+                    b.readings == 0
+                        ? const EmsRangeBar()
+                        : EmsRangeBar(low: b.average, high: b.peak, color: levelSignal(context, b.peakLevel)),
+                ],
+                guides: homeGuides(context),
+                selected: _selected,
+                onSelect: (i) => setState(() => _selected = i == _selected ? null : i),
+                xLabels: {for (var i = 0; i < buckets.length; i += step) i: buckets[i].label},
+                yUnit: 'µT',
+                semanticSummary: '${tr('rep_peak')} ${EmsFormat.value(report.peak)} µT',
+              ),
+              const SizedBox(height: EmsSpace.s3),
+              EmsChartLegend(items: [
+                (c.primary, tr('m_barAvgPeak'), false),
+                (c.textDisabled, tr('m_noReadings'), true),
+              ]),
+            ],
+          ),
         ),
-        const SizedBox(height: 20),
-        SectionLabel(tr('rep_trend')),
-        const SizedBox(height: 10),
-        _TrendChart(buckets: report.buckets),
-        const SizedBox(height: 20),
-        SectionLabel(tr('rep_detail')),
-        const SizedBox(height: 10),
-        if (report.buckets.isEmpty)
-          GlassPanel(
-            child: Text(
-              tr('rep_empty'),
-              style:
-                  const TextStyle(color: Etapa3Palette.muted, fontSize: 13),
+        const SizedBox(height: EmsSpace.s4),
+        Container(
+          decoration: BoxDecoration(color: c.surface, border: Border.all(color: c.border), borderRadius: BorderRadius.circular(EmsRadius.md)),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Cell(tr('rep_avg'), EmsFormat.value(report.average), 'µT'),
+                VerticalDivider(width: 1, color: c.borderSubtle),
+                _Cell(tr('rep_readings'), '${report.totalReadings}', null),
+                VerticalDivider(width: 1, color: c.borderSubtle),
+                _Cell(tr('rep_alerts'), '${report.totalAlerts}', null),
+              ],
             ),
-          )
-        else
-          for (final bucket in report.buckets.reversed) ...[
-            _BucketRow(bucket: bucket),
-            const SizedBox(height: 10),
+          ),
+        ),
+        const SizedBox(height: EmsSpace.s7),
+        EmsGroup(
+          footer: tr('m_avgPeakFooter'),
+          title: tr('rep_detail'),
+          children: [
+            for (var i = buckets.length - 1; i >= 0; i--)
+              EmsRow(
+                rail: buckets[i].readings == 0 ? null : levelSignal(context, buckets[i].peakLevel),
+                title: buckets[i].label,
+                subtitle: buckets[i].readings == 0
+                    ? tr('m_noReadings')
+                    : '${buckets[i].readings} ${tr('m_readings')} · ${buckets[i].alerts} ${tr('m_alertsLc')}',
+                value: buckets[i].readings == 0 ? null : '${EmsFormat.value(buckets[i].average)} / ${EmsFormat.value(buckets[i].peak)}',
+                mono: true,
+                onTap: () => setState(() => _selected = i),
+              ),
           ],
+        ),
       ],
     );
   }
 }
 
-class _PeriodChip extends StatelessWidget {
-  const _PeriodChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
+class _Cell extends StatelessWidget {
+  const _Cell(this.label, this.value, this.unit);
   final String label;
-  final bool selected;
-  final VoidCallback onTap;
+  final String value;
+  final String? unit;
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? Etapa3Palette.cyan.withValues(alpha: 0.14)
-              : Etapa3Palette.panelSoft,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected
-                ? Etapa3Palette.cyan.withValues(alpha: 0.5)
-                : Etapa3Palette.stroke,
+  Widget build(BuildContext context) => Expanded(
+        child: Padding(
+          padding: const EdgeInsets.all(EmsSpace.s4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label.toUpperCase(), style: context.type.eyebrow.copyWith(fontSize: 10)),
+              const SizedBox(height: EmsSpace.s2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(value, style: context.type.metricMd),
+                  if (unit != null) ...[const SizedBox(width: 3), Text(unit!, style: context.type.monoSm)],
+                ],
+              ),
+            ],
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Etapa3Palette.cyan : Etapa3Palette.muted,
-            fontSize: 13,
-            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Bar chart of bucket averages, colored by level (µT thresholds 100/200).
-class _TrendChart extends StatelessWidget {
-  const _TrendChart({required this.buckets});
-
-  final List<ClientReportBucket> buckets;
-
-  @override
-  Widget build(BuildContext context) {
-    final maxVal = buckets.isEmpty
-        ? 1.0
-        : buckets.map((b) => b.peak).reduce((a, b) => a > b ? a : b);
-    final safeMax = maxVal <= 0 ? 1.0 : maxVal;
-
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: 130,
-            child: buckets.isEmpty
-                ? Center(
-                    child: Text(
-                      tr('rep_empty'),
-                      style: const TextStyle(
-                          color: Etapa3Palette.quiet, fontSize: 12),
-                    ),
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      for (final b in buckets) ...[
-                        Expanded(
-                          child: Tooltip(
-                            message:
-                                '${b.label}\n${etapa3Num(b.average, decimals: 1)} $etapa3Unit',
-                            child: FractionallySizedBox(
-                              heightFactor:
-                                  (b.average / safeMax).clamp(0.04, 1.0),
-                              alignment: Alignment.bottomCenter,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: etapa3LevelColor(
-                                    b.average >= 200 ? 'danger'
-                                        : b.average >= 100 ? 'caution' : 'safe',
-                                  ).withValues(alpha: 0.75),
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                      ],
-                    ],
-                  ),
-          ),
-          if (buckets.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  buckets.first.label,
-                  style: const TextStyle(
-                      color: Etapa3Palette.quiet, fontSize: 11),
-                ),
-                Text(
-                  buckets.last.label,
-                  style: const TextStyle(
-                      color: Etapa3Palette.quiet, fontSize: 11),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _BucketRow extends StatelessWidget {
-  const _BucketRow({required this.bucket});
-
-  final ClientReportBucket bucket;
-
-  @override
-  Widget build(BuildContext context) {
-    final level = bucket.average >= 200
-        ? 'danger'
-        : bucket.average >= 100
-            ? 'caution'
-            : 'safe';
-    final color = etapa3LevelColor(level);
-    return GlassPanel(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            width: 10,
-            height: 42,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  bucket.label,
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${tr('rep_avg')}: ${etapa3Num(bucket.average, decimals: 1)} $etapa3Unit'
-                  '  ·  ${tr('rep_peak')}: ${etapa3Num(bucket.peak, decimals: 1)} $etapa3Unit'
-                  '  ·  ${bucket.readings} ${tr('rep_readings').toLowerCase()}',
-                  style: const TextStyle(
-                    color: Etapa3Palette.muted,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (bucket.alerts > 0) ...[
-            const SizedBox(width: 8),
-            StatusPill(
-              label: '${bucket.alerts} ⚠',
-              color: Etapa3Palette.amber,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+      );
 }

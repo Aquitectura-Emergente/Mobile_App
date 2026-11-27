@@ -7,19 +7,29 @@ import '../../contexts/devicemanagement/infrastructure/notification_service.dart
 import '../../contexts/devicemanagement/infrastructure/realtime_service.dart';
 import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
 import '../../contexts/radiationmonitoring/domain/client_dashboard.dart';
+import '../../contexts/radiationmonitoring/domain/client_reading.dart';
 import '../../core/http/api_client.dart';
+import '../../design_system/design_system.dart';
+import '../../routes/etapa3_routes.dart';
 import '../../services/app_i18n.dart';
+import '../../services/ems_format.dart';
+import '../shared/measurement_overview.dart';
 import 'astra_chat_screen.dart';
 import 'etapa3_components.dart';
+import 'home_presenters.dart';
 import 'map_radiation_screen.dart';
+import 'plug_screen.dart';
+import 'reading_detail_screen.dart';
 import 'reports_screen.dart';
+import 'sensor_detail_screen.dart';
 
+/// Inicio del hogar: estado general, lecturas clave, sensores, actuador,
+/// actividad reciente y accesos.
 class DashboardOverviewScreen extends StatefulWidget {
   const DashboardOverviewScreen({super.key});
 
   @override
-  State<DashboardOverviewScreen> createState() =>
-      _DashboardOverviewScreenState();
+  State<DashboardOverviewScreen> createState() => _DashboardOverviewScreenState();
 }
 
 class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
@@ -30,7 +40,6 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   void initState() {
     super.initState();
     _future = MonitoringFacade.dashboard();
-    // Live updates: refresh (debounced) whenever a reading arrives via STOMP.
     RealtimeService.ensureConnected();
     RealtimeService.readingTick.addListener(_onLiveReading);
     NotificationService.init();
@@ -50,28 +59,27 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
     });
   }
 
-  void _reload() {
+  Future<void> _reload() async {
     final future = MonitoringFacade.dashboard();
     setState(() { _future = future; });
+    try {
+      await future;
+    } catch (_) {}
   }
+
+  void _push(Widget page) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page)).then((_) => _reload());
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<ClientDashboard>(
       future: _future,
       builder: (context, snapshot) {
-        final data = snapshot.data;
-        final level = data?.level ?? 'safe';
         return Etapa3Shell(
-          title: 'EMSAFE',
+          title: tr('nav_home'),
           subtitle: tr('dash_subtitle'),
           selectedIndex: 0,
-          trailing: data == null
-              ? null
-              : StatusPill(
-                  label: etapa3LevelLabel(level),
-                  color: etapa3LevelColor(level),
-                ),
+          onRefresh: _reload,
+          trailing: EmsIconButton(icon: PhosphorIconsRegular.arrowsClockwise, tooltip: tr('common_refresh'), onPressed: _reload),
           child: _buildBody(snapshot),
         );
       },
@@ -79,211 +87,220 @@ class _DashboardOverviewScreenState extends State<DashboardOverviewScreen> {
   }
 
   Widget _buildBody(AsyncSnapshot<ClientDashboard> snapshot) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
+    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
       return const Etapa3Loading();
     }
-    if (snapshot.hasError) {
-      final msg = snapshot.error is ApiException
-          ? (snapshot.error as ApiException).message
-          : tr('dash_errLoad');
+    if (snapshot.hasError && !snapshot.hasData) {
+      final msg = snapshot.error is ApiException ? (snapshot.error as ApiException).message : tr('dash_errLoad');
       return Etapa3Error(message: msg, onRetry: _reload);
     }
 
     final data = snapshot.data!;
-    final color = etapa3LevelColor(data.level);
+    if (!data.hasDevices) {
+      return _NoDevices(onGuide: () => Navigator.of(context).pushNamed(Etapa3Routes.emptyState));
+    }
+    final sensors = data.devices.where((d) => !d.isPlug).toList();
+    final plugs = data.devices.where((d) => d.isPlug).toList();
+    final recent = [...data.latestReadings]..sort((a, b) => (b.takenAt ?? DateTime(0)).compareTo(a.takenAt ?? DateTime(0)));
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ExposureHero(data: data),
-        const SizedBox(height: 18),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 360;
-            return GridView.count(
-              crossAxisCount: compact ? 1 : 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: compact ? 2.35 : 1.34,
-              children: [
-                MetricTile(
-                  icon: Icons.show_chart,
-                  label: tr('dash_average'),
-                  value: etapa3Num(data.currentAverage),
-                  caption: '$etapa3Unit ${tr('dash_avgCaption')}',
-                  accent: Etapa3Palette.blue,
-                ),
-                MetricTile(
-                  icon: Icons.trending_up,
-                  label: tr('dash_peak'),
-                  value: etapa3Num(data.maxValue),
-                  caption: tr('dash_peakCaption'),
-                  accent: color,
-                ),
-                MetricTile(
-                  icon: Icons.sensors_outlined,
-                  label: tr('dash_online'),
-                  value: '${data.activeDeviceCount}/${data.deviceCount}',
-                  caption: tr('dash_reporting'),
-                  accent: Etapa3Palette.cyan,
-                ),
-                MetricTile(
-                  icon: Icons.notifications_active_outlined,
-                  label: tr('dash_alerts'),
-                  value: data.alertCount.toString().padLeft(2, '0'),
-                  caption: tr('dash_needReview'),
-                  accent: data.alertCount > 0
-                      ? Etapa3Palette.amber
-                      : Etapa3Palette.green,
-                ),
-              ],
-            );
-          },
+        _StatusHero(data: data),
+        const SizedBox(height: EmsSpace.s4),
+        _Readouts(data: data, onAlerts: () => Navigator.of(context).pushNamed(Etapa3Routes.alertHistory)),
+        const SizedBox(height: EmsSpace.s8),
+
+        EmsSectionHeader(
+          index: '01',
+          title: tr('m_sources'),
+          trailing: Text('${data.activeDeviceCount}/${sensors.length}', style: context.type.monoSm),
         ),
-        const SizedBox(height: 14),
-        Row(
+        EmsGroup(
           children: [
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.bar_chart_rounded,
-                label: tr('dash_qaReports'),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
-                ),
+            for (final s in sensors)
+              _SensorRow(
+                device: s,
+                onTap: () => _push(SensorDetailScreen(device: s)),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.map_outlined,
-                label: tr('dash_qaMap'),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                      builder: (_) => const MapRadiationScreen()),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.auto_awesome,
-                label: tr('dash_qaAstra'),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const AstraChatScreen()),
-                ),
-              ),
-            ),
           ],
         ),
-        const SizedBox(height: 20),
-        SectionLabel(tr('dash_activeZones')),
-        const SizedBox(height: 10),
-        if (data.devices.isEmpty)
-          GlassPanel(
-            child: Text(
-              tr('dash_noSensors'),
-              style: const TextStyle(
-                color: Etapa3Palette.muted,
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-          )
-        else
-          for (final device in data.devices) ...[
-            _ZoneRow(device: device),
-            const SizedBox(height: 10),
-          ],
-        const SizedBox(height: 8),
-        GlassPanel(
-          child: Row(
+        if (plugs.isNotEmpty) ...[
+          const SizedBox(height: EmsSpace.s7),
+          EmsSectionHeader(index: '02', title: tr('m_actuators')),
+          EmsGroup(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
+              for (final p in plugs)
+                EmsRow(
+                  icon: PhosphorIconsRegular.plug,
+                  iconTone: p.isPlugOn ? EmsTone.safe : EmsTone.neutral,
+                  title: p.name,
+                  subtitle: p.plugOrderPending ? tr(p.pendingPlug == PlugPower.off ? 'm_pendingOff' : 'm_pendingOn') : tr('m_smartPlugKind'),
+                  trailing: p.plugOrderPending
+                      ? EmsTag(tr('plug_pendingBadge'), tone: EmsTone.warning)
+                      : EmsTag(
+                          p.realPlug == null ? tr('m_unknown') : tr(p.isPlugOn ? 'm_on' : 'm_off'),
+                          tone: p.isPlugOn ? EmsTone.safe : EmsTone.neutral,
+                          icon: PhosphorIconsRegular.power,
+                        ),
+                  onTap: () => _push(PlugScreen(device: p)),
                 ),
-                child: Icon(Icons.auto_graph, color: color),
-              ),
-              const SizedBox(width: 14),
+            ],
+          ),
+        ],
+        if (recent.isNotEmpty) ...[
+          const SizedBox(height: EmsSpace.s7),
+          EmsSectionHeader(index: plugs.isEmpty ? '02' : '03', title: tr('m_recentActivity')),
+          EmsGroup(
+            children: [for (final r in recent.take(5)) _ActivityRow(reading: r, devices: data.devices)],
+          ),
+        ],
+        const SizedBox(height: EmsSpace.s7),
+        EmsSectionHeader(title: tr('m_explore')),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      data.alertCount == 0
-                          ? tr('dash_stable')
-                          : '${data.alertCount} ${tr('dash_aboveSafe')}',
-                      style: const TextStyle(
-                        color: Etapa3Palette.text,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      data.alertCount == 0
-                          ? tr('dash_noSpikes')
-                          : tr('dash_openAlerts'),
-                      style: const TextStyle(
-                        color: Etapa3Palette.muted,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
+                child: _ExploreTile(icon: PhosphorIconsRegular.chartBar, label: tr('dash_qaReports'), onTap: () => _push(const ReportsScreen())),
+              ),
+              const SizedBox(width: EmsSpace.s4),
+              Expanded(
+                child: _ExploreTile(icon: PhosphorIconsRegular.mapTrifold, label: tr('dash_qaMap'), onTap: () => _push(const MapRadiationScreen())),
+              ),
+              const SizedBox(width: EmsSpace.s4),
+              Expanded(
+                child: _ExploreTile(icon: PhosphorIconsRegular.sparkle, label: tr('dash_qaAstra'), ai: true, onTap: () => _push(const AstraChatScreen())),
               ),
             ],
           ),
         ),
+        const SizedBox(height: EmsSpace.s7),
+        Text(tr('ds_notMetrology'), textAlign: TextAlign.center, style: context.type.caption),
       ],
     );
   }
 }
 
-/// Shortcut card in the Home tab (Reports / Map / Astra assistant).
-class _QuickAction extends StatelessWidget {
-  const _QuickAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+/// Estado del hogar: nivel decidido por el backend, media actual y escala.
+class _StatusHero extends StatelessWidget {
+  const _StatusHero({required this.data});
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+  final ClientDashboard data;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: Etapa3Palette.panelSoft,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Etapa3Palette.stroke),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: Etapa3Palette.cyan, size: 22),
-            const SizedBox(height: 7),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Etapa3Palette.muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+    final c = context.ems;
+    final level = data.level;
+    final t = emsTone(context, levelTone(level));
+    final msg = switch (level) {
+      'danger' => tr('dash_msgDanger'),
+      'caution' => tr('dash_msgCaution'),
+      _ => tr('dash_msgSafe'),
+    };
+    return Container(
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border.all(color: c.border),
+        borderRadius: BorderRadius.circular(EmsRadius.md),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: t.bg,
+            padding: const EdgeInsets.fromLTRB(EmsSpace.s5, EmsSpace.s4, EmsSpace.s5, EmsSpace.s4),
+            child: Row(
+              children: [
+                Icon(levelIcon(level), color: t.fg, size: 22),
+                const SizedBox(width: EmsSpace.s4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(levelLabel(level).toUpperCase(), style: context.type.eyebrow.copyWith(color: t.fg)),
+                      const SizedBox(height: 2),
+                      Text(msg, style: context.type.bodySm.copyWith(color: c.text)),
+                    ],
+                  ),
+                ),
+              ],
             ),
+          ),
+          Container(height: 3, color: t.signal),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(EmsSpace.s6, EmsSpace.s6, EmsSpace.s6, EmsSpace.s5),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                EmsHeroValue(label: tr('dash_currentExposure'), value: EmsFormat.value(data.currentAverage, decimals: 2), unit: 'µT'),
+                const SizedBox(height: EmsSpace.s2),
+                Text(tr('m_avgOfSensors'), style: context.type.caption),
+                const SizedBox(height: EmsSpace.s5),
+                HomeLevelScale(value: data.currentAverage),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Readouts extends StatelessWidget {
+  const _Readouts({required this.data, required this.onAlerts});
+
+  final ClientDashboard data;
+  final VoidCallback onAlerts;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.ems;
+    Widget cell(String label, String value, {String? unit, Color? color, VoidCallback? onTap}) => Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(EmsSpace.s4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.type.eyebrow.copyWith(fontSize: 10)),
+              const SizedBox(height: EmsSpace.s2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(value, style: context.type.metricMd.copyWith(color: color)),
+                    ),
+                  ),
+                  if (unit != null) ...[const SizedBox(width: 3), Text(unit, style: context.type.monoSm)],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return Container(
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border.all(color: c.border),
+        borderRadius: BorderRadius.circular(EmsRadius.md),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            cell(tr('dash_peak'), EmsFormat.value(data.maxValue), unit: 'µT', color: emsTone(context, levelTone(levelForPeak(data.maxValue))).fg),
+            VerticalDivider(width: 1, color: c.borderSubtle),
+            cell(tr('m_reporting'), '${data.activeDeviceCount}/${data.deviceCount}', color: data.silentDeviceCount > 0 ? c.warning : null),
+            VerticalDivider(width: 1, color: c.borderSubtle),
+            cell(tr('dash_alerts'), '${data.alertCount}', color: data.alertCount > 0 ? c.warning : null, onTap: onAlerts),
           ],
         ),
       ),
@@ -291,179 +308,122 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
-class _ExposureHero extends StatelessWidget {
-  const _ExposureHero({required this.data});
+String levelForPeak(double v) => MonitoringFacade.levelFor(v);
 
-  final ClientDashboard data;
+class _SensorRow extends StatelessWidget {
+  const _SensorRow({required this.device, required this.onTap});
+
+  final ClientDevice device;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final color = etapa3LevelColor(data.level);
-    final double progress = data.safetyThreshold > 0
-        ? (data.currentAverage / data.safetyThreshold).clamp(0.0, 1.0)
-        : 0.0;
-
-    return GlassPanel(
-      padding: const EdgeInsets.all(22),
-      child: Column(
+    final signal = sensorSignal(device);
+    final level = device.latestLevel;
+    return EmsRow(
+      rail: level == null ? null : levelSignal(context, level),
+      title: device.name,
+      subtitle: device.location?.isNotEmpty == true ? device.location : signal.$2,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
-          SizedBox(
-            height: 238,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 238,
-                  height: 238,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: color.withValues(alpha: 0.24),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: color.withValues(alpha: 0.18),
-                        blurRadius: 30,
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 172,
-                  height: 172,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: color.withValues(alpha: 0.22),
-                      width: 14,
-                    ),
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      etapa3Num(data.currentAverage),
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 48,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      etapa3Unit,
-                      style: TextStyle(
-                        color: Etapa3Palette.muted,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
           Text(
-            tr('dash_currentExposure'),
-            style: const TextStyle(
-              color: Etapa3Palette.text,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-            ),
+            EmsFormat.value(device.latestValue),
+            style: context.type.mono.copyWith(fontSize: 16, color: level == null ? context.ems.text : emsTone(context, levelTone(level)).fg),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(width: 3),
+          Text('µT', style: context.type.monoSm),
+        ],
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({required this.reading, required this.devices});
+
+  final ClientReading reading;
+  final List<ClientDevice> devices;
+
+  @override
+  Widget build(BuildContext context) {
+    final at = reading.takenAt;
+    ClientDevice? device;
+    for (final d in devices) {
+      if (d.id == reading.deviceId) device = d;
+    }
+    final level = reading.effectiveLevel;
+    return EmsRow(
+      rail: levelSignal(context, level),
+      title: '${EmsFormat.value(reading.value, decimals: 2)} µT',
+      subtitle:
+          '${reading.deviceName ?? device?.name ?? tr('m_sensor')} · ${at == null ? '—' : (reading.hasExactTime ? '${EmsFormat.dayTitle(at)} ${EmsFormat.time(at)}' : EmsFormat.dayTitle(at))}',
+      trailing: EmsTag(levelLabel(level), tone: levelTone(level)),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => HomeReadingDetailScreen(reading: reading, device: device),
+        ),
+      ),
+    );
+  }
+}
+
+class _ExploreTile extends StatelessWidget {
+  const _ExploreTile({required this.icon, required this.label, required this.onTap, this.ai = false});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool ai;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.ems;
+    final color = ai ? c.accent : c.primary;
+    return EmsPanel(
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(EmsSpace.s4, EmsSpace.s5, EmsSpace.s4, EmsSpace.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: EmsSpace.s5),
           Text(
-            data.level == 'safe'
-                ? tr('dash_msgSafe')
-                : data.level == 'caution'
-                    ? tr('dash_msgCaution')
-                    : tr('dash_msgDanger'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 13,
-              height: 1.45,
-            ),
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.type.label.copyWith(color: c.text, fontWeight: FontWeight.w600),
           ),
-          const SizedBox(height: 18),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 7,
-              backgroundColor: const Color(0xFF32343E),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
-          ),
+          if (ai) ...[const SizedBox(height: EmsSpace.s2), const EmsAiBadge('IA')],
         ],
       ),
     );
   }
 }
 
-class _ZoneRow extends StatelessWidget {
-  const _ZoneRow({required this.device});
+class _NoDevices extends StatelessWidget {
+  const _NoDevices({required this.onGuide});
 
-  final ClientDevice device;
+  final VoidCallback onGuide;
 
   @override
   Widget build(BuildContext context) {
-    final color = etapa3LevelColor(device.latestLevel);
-    final value = device.latestValue != null
-        ? '${etapa3Num(device.latestValue)} $etapa3Unit'
-        : tr('dash_noReadings');
-    return GlassPanel(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            width: 10,
-            height: 42,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(8),
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        EmsPanel(
+          padding: EdgeInsets.zero,
+          child: EmsEmptyState(
+            icon: PhosphorIconsRegular.broadcast,
+            title: tr('dash_noSensors'),
+            message: tr('m_noDevicesMsg'),
+            action: EmsButton(label: tr('m_howInstall'), kind: EmsButtonKind.secondary, expand: false, onPressed: onGuide),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  device.location?.isNotEmpty == true
-                      ? device.location!
-                      : device.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Etapa3Palette.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          StatusPill(
-            label: etapa3LevelLabel(device.latestLevel),
-            color: color,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

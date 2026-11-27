@@ -1,16 +1,18 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../contexts/devicemanagement/application/device_facade.dart';
+import '../../contexts/devicemanagement/domain/client_device.dart';
 import '../../contexts/iam/application/auth_facade.dart';
 import '../../contexts/iam/domain/client_profile.dart';
 import '../../contexts/iam/infrastructure/session_store.dart';
-import '../../contexts/devicemanagement/application/device_facade.dart';
-import '../../contexts/devicemanagement/domain/client_device.dart';
 import '../../contexts/radiationmonitoring/application/monitoring_facade.dart';
 import '../../core/http/api_client.dart';
+import '../../design_system/design_system.dart';
 import '../../routes/etapa2_routes.dart';
 import '../../services/app_i18n.dart';
 import '../../services/app_settings_store.dart';
@@ -24,6 +26,8 @@ class _SettingsData {
   final List<ClientDevice> devices;
 }
 
+/// Ajustes: perfil, preferencias locales, cuenta y sesión. Compartido por el
+/// hogar y el operario (el operario no tiene sensores ni exportación).
 class SystemSettingsScreen extends StatefulWidget {
   const SystemSettingsScreen({super.key});
 
@@ -33,25 +37,22 @@ class SystemSettingsScreen extends StatefulWidget {
 
 class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   bool pushAlerts = AppSettingsStore.pushAlerts;
-
-  late Future<_SettingsData> _future;
+  bool biometricLock = AppSettingsStore.biometricLock;
+  late Future<_SettingsData> _future = _load();
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = _load();
-  }
 
   Future<_SettingsData> _load() async {
     final profile = await AuthFacade.profile();
-    final devices = await DeviceFacade.all();
+    final devices = SessionStore.isOperator ? const <ClientDevice>[] : await DeviceFacade.all();
     return _SettingsData(profile, devices);
   }
 
-  void _reload() {
+  Future<void> _reload() async {
     final future = _load();
     setState(() { _future = future; });
+    try {
+      await future;
+    } catch (_) {}
   }
 
   void _toast(String msg) {
@@ -60,15 +61,22 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   }
 
   Future<void> _signOut() async {
+    final ok = await showEmsConfirm(
+      context,
+      title: tr('set_signOut'),
+      message: tr('m_signOutMsg'),
+      confirmLabel: tr('set_signOut'),
+      cancelLabel: tr('common_cancel'),
+      icon: PhosphorIconsRegular.signOut,
+    );
+    if (!ok) return;
     await SessionStore.clear();
     if (!mounted) return;
-    Navigator.of(context)
-        .pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
   }
 
   Future<void> _openSubPage(Widget page) async {
-    final changed = await Navigator.of(context)
-        .push<bool>(MaterialPageRoute(builder: (_) => page));
+    final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => page));
     if (changed == true) _reload();
   }
 
@@ -83,15 +91,12 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
       final buf = StringBuffer('id,device,value_uT,level,date\n');
       for (final r in readings) {
         final device = (r.deviceName ?? '').replaceAll('"', '""');
-        buf.writeln(
-            '${r.id},"$device",${r.value ?? ''},${r.level ?? ''},${r.readingDate ?? ''}');
+        buf.writeln('${r.id},"$device",${r.value ?? ''},${r.level ?? ''},${r.readingDate ?? ''}');
       }
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/emsafe_readings.csv');
       await file.writeAsString(buf.toString());
-      await SharePlus.instance.share(
-        ShareParams(files: [XFile(file.path)], text: 'EMSafe readings (µT)'),
-      );
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)], text: 'EMSafe readings (µT)'));
     } on ApiException catch (e) {
       _toast(e.message);
     } finally {
@@ -100,140 +105,57 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   }
 
   void _showDeviceInfo(List<ClientDevice> devices) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Etapa3Palette.panel,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
-      ),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                tr('set_deviceInfo'),
-                style: const TextStyle(
-                  color: Etapa3Palette.text,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 14),
-              if (devices.isEmpty)
-                Text(
-                  tr('set_noSensors'),
-                  style: const TextStyle(
-                      color: Etapa3Palette.muted, fontSize: 13),
-                )
-              else
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: devices.length,
-                    separatorBuilder: (_, _) =>
-                        const Divider(color: Etapa3Palette.stroke, height: 18),
-                    itemBuilder: (context, i) {
-                      final d = devices[i];
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            d.name,
-                            style: const TextStyle(
-                              color: Etapa3Palette.text,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            '${tr('set_serial')}: ${d.serialNumber ?? '--'}'
-                            '  ·  ${tr('set_type')}: ${d.type}\n'
-                            '${tr('set_installed')}: ${d.installDate ?? '--'}'
-                            '  ·  ${tr('set_status')}: ${d.status}',
-                            style: const TextStyle(
-                              color: Etapa3Palette.muted,
-                              fontSize: 12,
-                              height: 1.5,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+    showEmsSheet<void>(
+      context,
+      eyebrow: tr('set_maintenance'),
+      title: tr('set_deviceInfo'),
+      builder: (ctx) => devices.isEmpty
+          ? EmsEmptyState(icon: PhosphorIconsRegular.broadcast, title: tr('set_noSensors'))
+          : Column(
+              children: [
+                for (final d in devices) ...[
+                  EmsGroup(
+                    title: d.name,
+                    children: [
+                      EmsKeyValue(label: tr('m_kind'), value: d.isPlug ? tr('m_smartPlugKind') : tr('m_fixedSensorKind')),
+                      EmsKeyValue(label: tr('set_serial'), value: d.serialNumber ?? '—', mono: true),
+                      EmsKeyValue(label: tr('set_installed'), value: d.installDate ?? '—', mono: true),
+                      EmsKeyValue(label: tr('set_status'), value: d.status, mono: true),
+                    ],
                   ),
-                ),
-            ],
-          ),
-        ),
-      ),
+                  const SizedBox(height: EmsSpace.s5),
+                ],
+              ],
+            ),
     );
   }
 
   Future<void> _confirmDeleteAccount() async {
     final pw = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Etapa3Palette.panel,
-        title: Text(
-          tr('del_title'),
-          style: const TextStyle(
-              color: Etapa3Palette.red, fontWeight: FontWeight.w900),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              tr('del_warning'),
-              style: const TextStyle(
-                  color: Etapa3Palette.muted, fontSize: 13, height: 1.4),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: pw,
-              obscureText: true,
-              style: const TextStyle(color: Etapa3Palette.text),
-              decoration: InputDecoration(
-                hintText: tr('del_confirmPw'),
-                hintStyle: const TextStyle(
-                    color: Etapa3Palette.quiet, fontSize: 13),
-                enabledBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: Etapa3Palette.stroke),
-                ),
-                focusedBorder: const UnderlineInputBorder(
-                  borderSide: BorderSide(color: Etapa3Palette.red),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(tr('common_cancel'),
-                style: const TextStyle(color: Etapa3Palette.muted)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(tr('del_button'),
-                style: const TextStyle(
-                    color: Etapa3Palette.red, fontWeight: FontWeight.w800)),
-          ),
+    final confirmed = await showEmsSheet<bool>(
+      context,
+      eyebrow: tr('set_account'),
+      title: tr('del_title'),
+      builder: (ctx) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          EmsBanner(tone: EmsTone.danger, icon: PhosphorIconsRegular.warningOctagon, message: tr('del_warning')),
+          const SizedBox(height: EmsSpace.s5),
+          EmsField(label: tr('del_confirmPw'), controller: pw, obscure: true, icon: PhosphorIconsRegular.lockKey, autofillHints: const [AutofillHints.password]),
+          const SizedBox(height: EmsSpace.s6),
+          EmsButton(label: tr('del_button'), kind: EmsButtonKind.danger, icon: PhosphorIconsRegular.trash, onPressed: () => Navigator.of(ctx).pop(true)),
+          const SizedBox(height: EmsSpace.s3),
+          EmsButton(label: tr('common_cancel'), kind: EmsButtonKind.secondary, onPressed: () => Navigator.of(ctx).pop(false)),
         ],
       ),
     );
     if (confirmed != true || pw.text.isEmpty) return;
-
     setState(() => _busy = true);
     try {
       await AuthFacade.deleteAccount(pw.text);
       if (!mounted) return;
       _toast(tr('del_done'));
-      Navigator.of(context)
-          .pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
+      Navigator.of(context).pushNamedAndRemoveUntil(Etapa2Routes.login, (route) => false);
     } on ApiException catch (e) {
       _toast(e.message);
     } finally {
@@ -246,25 +168,16 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
     return FutureBuilder<_SettingsData>(
       future: _future,
       builder: (context, snapshot) {
-        // Honest sync pill: green when the backend answered, red when it failed.
         final Widget? pill = snapshot.connectionState == ConnectionState.waiting
             ? null
             : snapshot.hasError
-                ? StatusPill(
-                    label: tr('set_offline'),
-                    color: Etapa3Palette.red,
-                    icon: Icons.cloud_off_outlined,
-                  )
-                : StatusPill(
-                    label: tr('set_syncOk'),
-                    color: Etapa3Palette.green,
-                    icon: Icons.cloud_done_outlined,
-                  );
-
+                ? EmsSignal(state: EmsSignalState.offline, label: tr('set_offline'))
+                : EmsSignal(state: EmsSignalState.online, label: tr('set_syncOk'));
         return Etapa3Shell(
           title: tr('set_title'),
           subtitle: tr('set_subtitle'),
           selectedIndex: 4,
+          onRefresh: _reload,
           trailing: pill,
           child: _buildBody(snapshot),
         );
@@ -273,315 +186,167 @@ class _SystemSettingsScreenState extends State<SystemSettingsScreen> {
   }
 
   Widget _buildBody(AsyncSnapshot<_SettingsData> snapshot) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
-      return const Etapa3Loading();
-    }
-    if (snapshot.hasError) {
-      final msg = snapshot.error is ApiException
-          ? (snapshot.error as ApiException).message
-          : tr('set_errLoad');
-      return Etapa3Error(message: msg, onRetry: _reload);
-    }
-    final data = snapshot.data!;
-
+    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) return const Etapa3Loading();
+    final data = snapshot.data;
+    final operator = SessionStore.isOperator;
+    final c = context.ems;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ProfileCard(profile: data.profile, deviceCount: data.devices.length),
-        const SizedBox(height: 20),
-        SectionLabel(tr('set_preferences')),
-        const SizedBox(height: 10),
-        _SettingsSwitch(
-          icon: Icons.notifications_active_outlined,
-          title: tr('set_push'),
-          subtitle: tr('set_pushSub'),
-          value: pushAlerts,
-          onChanged: (value) {
-            AppSettingsStore.pushAlerts = value;
-            setState(() => pushAlerts = value);
-          },
-        ),
-        const SizedBox(height: 10),
-        _SettingsSwitch(
-          icon: Icons.translate,
-          title: tr('set_language'),
-          subtitle: tr('set_langSub'),
-          value: I18n.lang.value == 'es',
-          onChanged: (value) {
-            I18n.set(value ? 'es' : 'en');
-            setState(() {});
-          },
-        ),
-        const SizedBox(height: 20),
-        SectionLabel(tr('set_account')),
-        const SizedBox(height: 10),
-        GlassPanel(
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            children: [
-              _ActionRow(
-                icon: Icons.person_outline,
-                title: tr('set_editProfile'),
-                subtitle: tr('set_editProfileSub'),
-                onTap: () => _openSubPage(const EditProfileScreen()),
+        if (data != null)
+          _ProfileCard(profile: data.profile, operator: operator)
+        else
+          Etapa3Error(
+            message: snapshot.error is ApiException ? (snapshot.error as ApiException).message : tr('set_errLoad'),
+            onRetry: _reload,
+          ),
+        const SizedBox(height: EmsSpace.s7),
+        EmsGroup(
+          footer: tr('m_prefsLocal'),
+          title: tr('set_preferences'),
+          children: [
+            EmsRow(
+              icon: PhosphorIconsRegular.bellRinging,
+              title: tr('set_push'),
+              subtitle: tr('set_pushSub'),
+              trailing: Switch(
+                value: pushAlerts,
+                onChanged: (value) {
+                  AppSettingsStore.pushAlerts = value;
+                  setState(() => pushAlerts = value);
+                },
               ),
-              const Divider(color: Etapa3Palette.stroke, height: 1),
-              _ActionRow(
-                icon: Icons.lock_outline,
-                title: tr('set_changePw'),
-                subtitle: tr('set_changePwSub'),
-                onTap: () => _openSubPage(const ChangePasswordScreen()),
+            ),
+            if (!kIsWeb)
+              EmsRow(
+                icon: PhosphorIconsRegular.fingerprint,
+                title: tr('m_bioLock'),
+                subtitle: tr('m_bioLockSub'),
+                trailing: Switch(
+                  value: biometricLock,
+                  onChanged: (value) {
+                    AppSettingsStore.biometricLock = value;
+                    setState(() => biometricLock = value);
+                  },
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(EmsSpace.s5, EmsSpace.s4, EmsSpace.s5, EmsSpace.s4),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(color: c.bgSunken, borderRadius: BorderRadius.circular(EmsRadius.sm), border: Border.all(color: c.border)),
+                    child: Icon(PhosphorIconsRegular.translate, size: 18, color: c.textSecondary),
+                  ),
+                  const SizedBox(width: EmsSpace.s4),
+                  Expanded(child: Text(tr('set_language'), style: context.type.body.copyWith(fontWeight: FontWeight.w500))),
+                  SizedBox(
+                    width: 132,
+                    child: EmsSegmented<String>(
+                      dense: true,
+                      value: I18n.lang.value,
+                      segments: const [('es', 'ES'), ('en', 'EN')],
+                      onChanged: (v) => setState(() => I18n.set(v)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: EmsSpace.s7),
+        EmsGroup(
+          title: tr('set_account'),
+          children: [
+            EmsRow(icon: PhosphorIconsRegular.user, title: tr('set_editProfile'), subtitle: tr('set_editProfileSub'), onTap: data == null ? null : () => _openSubPage(EditProfileScreen(profile: data.profile))),
+            EmsRow(icon: PhosphorIconsRegular.password, title: tr('set_changePw'), subtitle: tr('set_changePwSub'), onTap: () => _openSubPage(const ChangePasswordScreen())),
+          ],
+        ),
+        if (!operator) ...[
+          const SizedBox(height: EmsSpace.s7),
+          EmsGroup(
+            title: tr('m_homeData'),
+            children: [
+              EmsRow(
+                icon: PhosphorIconsRegular.cpu,
+                title: tr('set_deviceInfo'),
+                subtitle: tr('set_deviceInfoSub'),
+                value: data == null ? null : '${data.devices.length}',
+                mono: true,
+                onTap: data == null ? null : () => _showDeviceInfo(data.devices),
+              ),
+              EmsRow(
+                icon: PhosphorIconsRegular.export,
+                title: tr('set_export'),
+                subtitle: tr('set_exportSub'),
+                trailing: _busy ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: c.primary)) : null,
+                onTap: _busy ? null : _exportCsv,
               ),
             ],
           ),
+        ],
+        const SizedBox(height: EmsSpace.s7),
+        EmsGroup(
+          title: tr('m_session'),
+          children: [
+            EmsRow(icon: PhosphorIconsRegular.signOut, title: tr('set_signOut'), subtitle: tr('set_signOutSub'), onTap: _signOut),
+            EmsRow(icon: PhosphorIconsRegular.trash, title: tr('set_deleteAccount'), subtitle: tr('set_deleteAccountSub'), destructive: true, onTap: _busy ? null : _confirmDeleteAccount),
+          ],
         ),
-        const SizedBox(height: 20),
-        SectionLabel(tr('set_maintenance')),
-        const SizedBox(height: 10),
-        GlassPanel(
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            children: [
-              // Sensores y exportación son del hogar.
-              if (!SessionStore.isOperator) ...[
-                _ActionRow(
-                  icon: Icons.memory_outlined,
-                  title: tr('set_deviceInfo'),
-                  subtitle: tr('set_deviceInfoSub'),
-                  onTap: () => _showDeviceInfo(data.devices),
-                ),
-                const Divider(color: Etapa3Palette.stroke, height: 1),
-                _ActionRow(
-                  icon: Icons.history_toggle_off,
-                  title: tr('set_export'),
-                  subtitle: tr('set_exportSub'),
-                  onTap: _busy ? null : _exportCsv,
-                ),
-                const Divider(color: Etapa3Palette.stroke, height: 1),
-              ],
-              _ActionRow(
-                icon: Icons.logout,
-                title: tr('set_signOut'),
-                subtitle: tr('set_signOutSub'),
-                destructive: true,
-                onTap: _signOut,
-              ),
-              const Divider(color: Etapa3Palette.stroke, height: 1),
-              _ActionRow(
-                icon: Icons.delete_forever_outlined,
-                title: tr('set_deleteAccount'),
-                subtitle: tr('set_deleteAccountSub'),
-                destructive: true,
-                onTap: _busy ? null : _confirmDeleteAccount,
-              ),
-            ],
-          ),
-        ),
+        const SizedBox(height: EmsSpace.s7),
+        Center(child: Text('EMSafe · ${tr('ds_notMetrology')}', textAlign: TextAlign.center, style: context.type.caption)),
       ],
     );
   }
 }
 
 class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.profile, required this.deviceCount});
+  const _ProfileCard({required this.profile, required this.operator});
 
   final ClientProfile profile;
-  final int deviceCount;
+  final bool operator;
 
   @override
   Widget build(BuildContext context) {
-    final sensorsWord =
-        deviceCount == 1 ? tr('set_sensor') : tr('set_sensors_lc');
-    return GlassPanel(
-      padding: const EdgeInsets.all(18),
+    final c = context.ems;
+    final initials = (profile.initials?.isNotEmpty == true
+            ? profile.initials!
+            : profile.name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).take(2).map((w) => w[0]).join())
+        .toUpperCase();
+    return EmsPanel(
+      padding: const EdgeInsets.all(EmsSpace.s5),
       child: Row(
         children: [
           Container(
-            width: 58,
-            height: 58,
+            width: 56,
+            height: 56,
             alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Etapa3Palette.blue.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Etapa3Palette.blue.withValues(alpha: 0.22),
-              ),
-            ),
-            child: Text(
-              (profile.initials?.isNotEmpty == true
-                  ? profile.initials!
-                  : (profile.name.isNotEmpty ? profile.name[0] : '?')),
-              style: const TextStyle(
-                color: Etapa3Palette.blue,
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
+            decoration: BoxDecoration(color: c.chrome, borderRadius: BorderRadius.circular(EmsRadius.md), border: Border.all(color: c.chromeBorder)),
+            child: Text(initials, style: context.type.h3.copyWith(color: c.chromeText)),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: EmsSpace.s5),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  profile.name.isEmpty ? tr('set_myAccount') : profile.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '$deviceCount $sensorsWord ${tr('set_monitored')}'
-                  '${profile.address != null ? ' · ${profile.address}' : ''}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Etapa3Palette.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Text(profile.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.type.h4),
+                const SizedBox(height: 2),
+                Text(profile.email, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.type.bodySm),
+                const SizedBox(height: EmsSpace.s3),
+                Wrap(
+                  spacing: EmsSpace.s3,
+                  runSpacing: EmsSpace.s2,
+                  children: [
+                    EmsTag(tr(operator ? 'm_segOperator' : 'm_segHome'), tone: EmsTone.primary, icon: operator ? PhosphorIconsRegular.hardHat : PhosphorIconsRegular.house),
+                    if (profile.joinDate != null) EmsTag('${tr('m_since')} ${profile.joinDate}'),
+                  ],
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _SettingsSwitch extends StatelessWidget {
-  const _SettingsSwitch({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassPanel(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: Etapa3Palette.cyan.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: Etapa3Palette.cyan, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: Etapa3Palette.muted,
-                    fontSize: 12,
-                    height: 1.25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: value,
-            activeThumbColor: Etapa3Palette.cyan,
-            activeTrackColor: Etapa3Palette.cyan.withValues(alpha: 0.28),
-            inactiveThumbColor: Etapa3Palette.quiet,
-            inactiveTrackColor: Etapa3Palette.stroke,
-            onChanged: onChanged,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.destructive = false,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool destructive;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = destructive ? Etapa3Palette.red : Etapa3Palette.blue;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: destructive
-                          ? Etapa3Palette.red
-                          : Etapa3Palette.text,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Etapa3Palette.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right,
-              color: Etapa3Palette.quiet,
-              size: 22,
-            ),
-          ],
-        ),
       ),
     );
   }
