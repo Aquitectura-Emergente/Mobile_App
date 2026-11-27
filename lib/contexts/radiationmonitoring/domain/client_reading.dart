@@ -39,4 +39,15 @@ class ClientReading {
       level ?? (value == null ? RadiationLevel.safe : levelForValue(value!));
 
   bool get isDangerous => effectiveLevel == RadiationLevel.danger;
+
+  /// Momento de la medición en hora local. Sin `recordedAt` solo se conoce el
+  /// día ([hasExactTime] = false).
+  DateTime? get takenAt {
+    final exact = DateTime.tryParse(recordedAt ?? '');
+    if (exact != null) return exact.toLocal();
+    final day = DateTime.tryParse(readingDate ?? '');
+    return day == null ? null : DateTime(day.year, day.month, day.day);
+  }
+
+  bool get hasExactTime => DateTime.tryParse(recordedAt ?? '') != null;
 }

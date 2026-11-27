@@ -7,6 +7,7 @@ class AppSettingsStore {
   static const _kAutoCalibrate = 'settings.autoCalibrate';
   static const _kCloudSync = 'settings.cloudSync';
   static const _kLanguage = 'settings.language';
+  static const _kBiometricLock = 'settings.biometricLock';
 
   static SharedPreferences? _prefs;
 
@@ -23,6 +24,10 @@ class AppSettingsStore {
 
   static bool get cloudSync => _prefs?.getBool(_kCloudSync) ?? false;
   static set cloudSync(bool v) => _prefs?.setBool(_kCloudSync, v);
+
+  /// Pide biometría del dispositivo al abrir la app con una sesión guardada.
+  static bool get biometricLock => _prefs?.getBool(_kBiometricLock) ?? false;
+  static set biometricLock(bool v) => _prefs?.setBool(_kBiometricLock, v);
 
   /// UI language: 'en' | 'es'.
   static String get language => _prefs?.getString(_kLanguage) ?? 'en';

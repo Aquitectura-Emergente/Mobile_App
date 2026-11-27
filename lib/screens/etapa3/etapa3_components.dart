@@ -1,53 +1,26 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../contexts/iam/infrastructure/session_store.dart';
+import '../../design_system/design_system.dart';
 import '../../routes/etapa3_routes.dart';
 import '../../routes/operator_routes.dart';
 import '../../services/app_i18n.dart';
 
+/// Colores del tema oscuro de la app, tomados de los tokens del sistema de diseño.
+/// Se mantiene como alias para pantallas que pintan fuera de un BuildContext.
 class Etapa3Palette {
-  static const bg = Color(0xFF10131B);
-  static const panel = Color(0xFF1D1F28);
-  static const panelSoft = Color.fromRGBO(29, 31, 40, 0.72);
-  static const stroke = Color.fromRGBO(66, 70, 85, 0.32);
-  static const cyan = Color(0xFF65DAFF);
-  static const blue = Color(0xFFB2C5FF);
-  static const text = Color(0xFFE1E2EE);
-  static const muted = Color(0xFFC2C6D8);
-  static const quiet = Color(0xFF8C90A1);
-  static const green = Color(0xFF2EA043);
-  static const amber = Color(0xFFFFC857);
-  static const red = Color(0xFFFF5B6E);
-}
-
-/// Maps a backend radiation level ("safe" | "caution" | "danger") to a color.
-Color etapa3LevelColor(String? level) {
-  switch (level) {
-    case 'danger':
-      return Etapa3Palette.red;
-    case 'caution':
-      return Etapa3Palette.amber;
-    case 'safe':
-      return Etapa3Palette.green;
-    default:
-      return Etapa3Palette.cyan;
-  }
-}
-
-/// Uppercase label for a backend radiation level.
-String etapa3LevelLabel(String? level) {
-  switch (level) {
-    case 'danger':
-      return 'DANGER';
-    case 'caution':
-      return 'CAUTION';
-    case 'safe':
-      return 'SAFE';
-    default:
-      return (level ?? 'UNKNOWN').toUpperCase();
-  }
+  static const bg = Color(0xFF0D0F13); // emsDark.bg
+  static const panel = Color(0xFF14171C); // emsDark.surface
+  static const panelSoft = Color(0xFF1A1E24); // emsDark.surfaceRaised
+  static const stroke = Color(0xFF272C34); // emsDark.border
+  static const cyan = Color(0xFF9C96FF); // emsDark.primary (interacción)
+  static const blue = Color(0xFF7DB2E8); // emsDark.info
+  static const text = Color(0xFFECEEF1); // emsDark.text
+  static const muted = Color(0xFFA6ADB9); // emsDark.textSecondary
+  static const quiet = Color(0xFF868E9C); // emsDark.textTertiary
+  static const green = Color(0xFF3DB878); // emsDark.safeSignal
+  static const amber = Color(0xFFE8B21C); // emsDark.warningSignal
+  static const red = Color(0xFFF0544A); // emsDark.dangerSignal
 }
 
 /// Formats a nullable reading value for display.
@@ -94,30 +67,29 @@ String etapa3TimeAgo(String? iso, {String? fallbackDate}) {
   return tr('time_ago_fmt').replaceAll('{n}', n).replaceAll('{u}', u);
 }
 
-/// Unit shown next to radiation values across the app (microtesla, magnetic field).
-const String etapa3Unit = 'µT';
-
-/// Safe limit in µT (danger threshold, ICNIRP 50 Hz reference — same as backend/edge).
-const double etapa3SafetyThreshold = 200;
-
-/// Centered loading spinner used inside Etapa3Shell while data loads.
+/// Indicador de carga dentro del shell.
 class Etapa3Loading extends StatelessWidget {
   const Etapa3Loading({super.key});
 
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: EdgeInsets.only(top: 120),
-      child: Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Etapa3Palette.cyan),
-        ),
+      padding: EdgeInsets.only(top: EmsSpace.s7),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          EmsSkeleton(height: 220, radius: EmsRadius.md),
+          SizedBox(height: EmsSpace.s5),
+          EmsSkeleton(width: 160, height: 14),
+          SizedBox(height: EmsSpace.s3),
+          EmsSkeleton(height: 88, radius: EmsRadius.md),
+        ],
       ),
     );
   }
 }
 
-/// Error panel with a retry button, used inside Etapa3Shell on load failure.
+/// Error con reintento dentro del shell.
 class Etapa3Error extends StatelessWidget {
   const Etapa3Error({super.key, required this.message, required this.onRetry});
 
@@ -127,40 +99,24 @@ class Etapa3Error extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 60),
-      child: GlassPanel(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          children: [
-            const Icon(Icons.cloud_off_outlined,
-                color: Etapa3Palette.red, size: 40),
-            const SizedBox(height: 14),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Etapa3Palette.muted,
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 18),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Etapa3Palette.cyan,
-                side: const BorderSide(color: Etapa3Palette.stroke),
-              ),
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
+      padding: const EdgeInsets.only(top: EmsSpace.s8),
+      child: EmsPanel(
+        child: EmsEmptyState(
+          kind: EmsEmptyKind.offline,
+          title: message,
+          action: OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(PhosphorIconsRegular.arrowsClockwise, size: 18),
+            label: Text(tr('common_retry')),
+          ),
         ),
       ),
     );
   }
 }
 
+/// Estructura de las pantallas principales: encabezado editorial, contenido y
+/// barra de navegación inferior.
 class Etapa3Shell extends StatelessWidget {
   const Etapa3Shell({
     super.key,
@@ -169,6 +125,7 @@ class Etapa3Shell extends StatelessWidget {
     required this.child,
     this.trailing,
     this.selectedIndex = 0,
+    this.onRefresh,
   });
 
   final String title;
@@ -177,183 +134,100 @@ class Etapa3Shell extends StatelessWidget {
   final Widget? trailing;
   final int selectedIndex;
 
+  /// Deslizar hacia abajo para recargar.
+  final Future<void> Function()? onRefresh;
+
   @override
   Widget build(BuildContext context) {
+    // Las pestañas se reemplazan entre sí, así que "atrás" en una pestaña
+    // secundaria saldría de la app: primero vuelve a la pestaña principal.
+    final atRoot = !Navigator.of(context).canPop();
+    return PopScope(
+      canPop: !atRoot || selectedIndex == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) Stage3BottomNav.goToTab(context, 0);
+      },
+      child: _scaffold(context),
+    );
+  }
+
+  Widget _scaffold(BuildContext context) {
     return Scaffold(
-      backgroundColor: Etapa3Palette.bg,
+      backgroundColor: context.ems.bg,
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 460),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
-                      child: _StageHeader(
-                        title: title,
-                        trailing: trailing,
-                      ),
-                    ),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
-                        child: child,
-                      ),
-                    ),
-                    Stage3BottomNav(selectedIndex: selectedIndex),
-                  ],
+        bottom: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(EmsSpace.s6, EmsSpace.s4, EmsSpace.s5, 0),
+                  child: _StageHeader(title: title, trailing: trailing),
                 ),
-              ),
-            );
-          },
+                Expanded(child: _body(context)),
+              ],
+            ),
+          ),
         ),
       ),
+      bottomNavigationBar: Stage3BottomNav(selectedIndex: selectedIndex),
+    );
+  }
+}
+
+extension on Etapa3Shell {
+  Widget _body(BuildContext context) {
+    final scroll = SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(EmsSpace.s6, EmsSpace.s5, EmsSpace.s6, EmsSpace.s8),
+      child: child,
+    );
+    if (onRefresh == null) return scroll;
+    return RefreshIndicator(
+      onRefresh: onRefresh!,
+      color: context.ems.primary,
+      backgroundColor: context.ems.surface,
+      child: scroll,
     );
   }
 }
 
 class _StageHeader extends StatelessWidget {
-  const _StageHeader({
-    required this.title,
-    this.trailing,
-  });
+  const _StageHeader({required this.title, this.trailing});
 
   final String title;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: const Color.fromRGBO(178, 197, 255, 0.12),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color.fromRGBO(178, 197, 255, 0.2)),
-          ),
-          child: const Icon(
-            Icons.shield_outlined,
-            color: Etapa3Palette.blue,
-            size: 21,
-          ),
+        Row(
+          children: [
+            const EmsBrandMark(size: 22),
+            const SizedBox(width: EmsSpace.s3),
+            Text('EMSAFE', style: context.type.eyebrow.copyWith(fontSize: 11)),
+            const Spacer(),
+            ?trailing,
+          ],
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          // Header shows only the title — subtitle descriptions were removed app-wide.
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Etapa3Palette.text,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              height: 1.1,
-            ),
-          ),
+        const SizedBox(height: EmsSpace.s4),
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: context.type.h1.copyWith(fontSize: 28, height: 1.1),
         ),
-        if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+        const SizedBox(height: EmsSpace.s4),
+        const EmsScaleRule(),
       ],
     );
   }
 }
 
-class GlassPanel extends StatelessWidget {
-  const GlassPanel({
-    super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(18),
-    this.borderRadius = 8,
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  final double borderRadius;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          width: double.infinity,
-          padding: padding,
-          decoration: BoxDecoration(
-            color: Etapa3Palette.panelSoft,
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: Etapa3Palette.stroke),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class StatusPill extends StatelessWidget {
-  const StatusPill({
-    super.key,
-    required this.label,
-    required this.color,
-    this.icon,
-  });
-
-  final String label;
-  final Color color;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon ?? Icons.circle, color: color, size: icon == null ? 8 : 14),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class SectionLabel extends StatelessWidget {
-  const SectionLabel(this.text, {super.key});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: Etapa3Palette.quiet,
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-      ),
-    );
-  }
-}
-
+/// Lectura compacta (icono, valor mono, etiqueta y nota).
 class MetricTile extends StatelessWidget {
   const MetricTile({
     super.key,
@@ -372,45 +246,40 @@ class MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassPanel(
-      padding: const EdgeInsets.all(14),
+    final c = context.ems;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(EmsSpace.s5, EmsSpace.s5, EmsSpace.s4, EmsSpace.s5),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(EmsRadius.md),
+        border: Border.all(color: c.border),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: accent, size: 22),
-          const SizedBox(height: 14),
+          Row(
+            children: [
+              Icon(icon, color: accent, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.type.eyebrow.copyWith(fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: EmsSpace.s4),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              maxLines: 1,
-              style: const TextStyle(
-                color: Etapa3Palette.text,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+            child: Text(value, maxLines: 1, style: context.type.metricMd.copyWith(fontSize: 24)),
           ),
           if (caption != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              caption!,
-              style: const TextStyle(
-                color: Etapa3Palette.quiet,
-                fontSize: 11,
-                height: 1.3,
-              ),
-            ),
+            const SizedBox(height: EmsSpace.s2),
+            Text(caption!, style: context.type.caption, maxLines: 2, overflow: TextOverflow.ellipsis),
           ],
         ],
       ),
@@ -418,6 +287,7 @@ class MetricTile extends StatelessWidget {
   }
 }
 
+/// Barra de navegación inferior (cromo grafito, indicador superior en el ítem activo).
 class Stage3BottomNav extends StatelessWidget {
   const Stage3BottomNav({super.key, required this.selectedIndex});
 
@@ -425,64 +295,62 @@ class Stage3BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = SessionStore.isOperator ? _operatorItems() : _homeItems();
-    return _buildBar(context, items);
+    return _buildBar(context, _items());
+  }
+
+  static List<(IconData, String, String)> _items() =>
+      SessionStore.isOperator ? _operatorItems() : _homeItems();
+
+  /// Cambio instantáneo a la pestaña [index].
+  static void goToTab(BuildContext context, int index) {
+    final route = _items()[index].$3;
+    final builder = Etapa3Routes.routes[route] ?? OperatorRoutes.routes[route]!;
+    Navigator.of(context).pushReplacement(PageRouteBuilder(
+      settings: RouteSettings(name: route),
+      pageBuilder: (ctx, _, _) => builder(ctx),
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    ));
   }
 
   // El operario no tiene sensores ni enchufe: su barra es de exposición.
   static List<(IconData, String, String)> _operatorItems() => [
-        (Icons.speed, tr('nav_exposure'), OperatorRoutes.exposure),
-        (Icons.show_chart, tr('nav_shift'), OperatorRoutes.readings),
-        (Icons.history, tr('nav_history'), OperatorRoutes.history),
-        (Icons.notifications_none, tr('nav_alerts'), OperatorRoutes.alerts),
-        (Icons.settings_outlined, tr('nav_settings'), Etapa3Routes.systemSettings),
+        (PhosphorIconsRegular.gauge, tr('nav_exposure'), OperatorRoutes.exposure),
+        (PhosphorIconsRegular.chartLine, tr('nav_shift'), OperatorRoutes.readings),
+        (PhosphorIconsRegular.clockCounterClockwise, tr('nav_history'), OperatorRoutes.history),
+        (PhosphorIconsRegular.bell, tr('nav_alerts'), OperatorRoutes.alerts),
+        (PhosphorIconsRegular.gearSix, tr('nav_settings'), Etapa3Routes.systemSettings),
       ];
 
   static List<(IconData, String, String)> _homeItems() => [
-      (Icons.dashboard_outlined, tr('nav_home'), Etapa3Routes.dashboardOverview),
-      (Icons.sensors, tr('nav_monitor'), Etapa3Routes.monitor),
-      (
-        Icons.monitor_heart_outlined,
-        tr('nav_vitals'),
-        Etapa3Routes.sensorMonitoringDetail,
-      ),
-      (Icons.notifications_none, tr('nav_alerts'), Etapa3Routes.alertHistory),
-      (Icons.settings_outlined, tr('nav_settings'), Etapa3Routes.systemSettings),
-    ];
+        (PhosphorIconsRegular.squaresFour, tr('nav_home'), Etapa3Routes.dashboardOverview),
+        (PhosphorIconsRegular.broadcast, tr('nav_monitor'), Etapa3Routes.monitor),
+        (PhosphorIconsRegular.lightbulb, tr('nav_vitals'), Etapa3Routes.sensorMonitoringDetail),
+        (PhosphorIconsRegular.bell, tr('nav_alerts'), Etapa3Routes.alertHistory),
+        (PhosphorIconsRegular.gearSix, tr('nav_settings'), Etapa3Routes.systemSettings),
+      ];
 
-  Widget _buildBar(
-      BuildContext context, List<(IconData, String, String)> items) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+  Widget _buildBar(BuildContext context, List<(IconData, String, String)> items) {
+    final c = context.ems;
+    return Material(
+      color: c.chrome,
+      child: SafeArea(
+        top: false,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-          decoration: const BoxDecoration(
-            color: Color.fromRGBO(16, 19, 27, 0.88),
-            border: Border(top: BorderSide(color: Etapa3Palette.stroke)),
-          ),
+          height: EmsSize.bottomNav,
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: c.chromeBorder))),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               for (var index = 0; index < items.length; index++)
-                _BottomNavItem(
-                  icon: items[index].$1,
-                  label: items[index].$2,
-                  selected: selectedIndex == index,
-                  onTap: () {
-                    if (selectedIndex == index) return;
-                    final route = items[index].$3;
-                    final builder = Etapa3Routes.routes[route] ??
-                        OperatorRoutes.routes[route]!;
-                    // Instant swap (no slide) between tabs.
-                    Navigator.of(context).pushReplacement(PageRouteBuilder(
-                      settings: RouteSettings(name: route),
-                      pageBuilder: (ctx, _, _) => builder(ctx),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
-                    ));
-                  },
+                Expanded(
+                  child: _BottomNavItem(
+                    icon: items[index].$1,
+                    label: items[index].$2,
+                    selected: selectedIndex == index,
+                    onTap: () {
+                      if (selectedIndex != index) goToTab(context, index);
+                    },
+                  ),
                 ),
             ],
           ),
@@ -507,228 +375,48 @@ class _BottomNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? Etapa3Palette.cyan : Etapa3Palette.quiet;
-    return Tooltip(
-      message: label,
+    final c = context.ems;
+    final color = selected ? c.chromeText : c.chromeTextMuted;
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: label,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: SizedBox(
-          width: 72,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: color, size: 22),
-                const SizedBox(height: 5),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 11,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+        child: Stack(
+          children: [
+            AnimatedPositioned(
+              duration: EmsDuration.base,
+              top: 0,
+              left: selected ? 14 : 40,
+              right: selected ? 14 : 40,
+              height: EmsBorder.rail,
+              child: AnimatedOpacity(
+                duration: EmsDuration.base,
+                opacity: selected ? 1 : 0,
+                child: Container(color: c.chromeAccent),
+              ),
+            ),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: selected ? c.chromeAccent : color, size: 22),
+                  const SizedBox(height: EmsSpace.s2),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.type.caption.copyWith(
+                      color: color,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Medición actual destacada (valor en µT, estado y barra opcional).
-class LiveReadingHero extends StatelessWidget {
-  const LiveReadingHero({
-    super.key,
-    required this.value,
-    required this.color,
-    required this.statusLabel,
-    required this.statusColor,
-    required this.updatedText,
-    this.progress,
-  });
-
-  final double? value;
-  final Color color;
-  final String statusLabel;
-  final Color statusColor;
-  final String updatedText;
-
-  /// Fracción del umbral (0..1); sin valor no se dibuja la barra.
-  final double? progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassPanel(
-      padding: const EdgeInsets.all(22),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              StatusPill(
-                label: statusLabel,
-                color: statusColor,
-              ),
-              const Spacer(),
-              Text(
-                updatedText,
-                style: TextStyle(
-                  color: Etapa3Palette.quiet.withValues(alpha: 0.9),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          Container(
-            width: 154,
-            height: 154,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.06),
-              border: Border.all(color: color.withValues(alpha: 0.3), width: 2),
-              boxShadow: [
-                BoxShadow(color: color.withValues(alpha: 0.16), blurRadius: 28),
-              ],
-            ),
-            child: Icon(Icons.sensors, color: color, size: 76),
-          ),
-          const SizedBox(height: 26),
-          Text(
-            etapa3Num(value),
-            style: const TextStyle(
-              color: Etapa3Palette.text,
-              fontSize: 56,
-              fontWeight: FontWeight.w900,
-              height: 0.95,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$etapa3Unit · ${tr('dash_currentExposure').toLowerCase()}',
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (progress != null) ...[
-            const SizedBox(height: 22),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(99),
-              child: LinearProgressIndicator(
-                value: progress!.clamp(0.0, 1.0),
-                minHeight: 8,
-                backgroundColor: const Color(0xFF32343E),
-                valueColor: AlwaysStoppedAnimation<Color>(color),
+                ],
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Barra del gráfico de tendencia.
-class TrendPoint {
-  const TrendPoint(this.value, this.color);
-
-  final double value;
-  final Color color;
-}
-
-/// Gráfico de barras con las lecturas recientes.
-class TrendCard extends StatelessWidget {
-  const TrendCard({super.key, required this.points});
-
-  /// De la más reciente a la más antigua.
-  final List<TrendPoint> points;
-
-  @override
-  Widget build(BuildContext context) {
-    // Ventana de las últimas 12, de la más antigua a la más reciente.
-    final window = points.take(12).toList().reversed.toList();
-    final values = window
-        .map((p) => p.value)
-        .where((v) => v >= 0)
-        .toList();
-    final maxVal = values.isEmpty
-        ? 1.0
-        : values.reduce((a, b) => a > b ? a : b);
-    final safeMax = maxVal <= 0 ? 1.0 : maxVal;
-
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  tr('mon_recentTitle'),
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              StatusPill(
-                label: '${window.length} pts',
-                color: Etapa3Palette.cyan,
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          SizedBox(
-            height: 110,
-            child: window.isEmpty
-                ? Center(
-                    child: Text(
-                      tr('mon_noChart'),
-                      style: const TextStyle(
-                          color: Etapa3Palette.quiet, fontSize: 12),
-                    ),
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      for (final point in window) ...[
-                        Expanded(
-                          child: FractionallySizedBox(
-                            heightFactor:
-                                (point.value / safeMax).clamp(0.04, 1.0),
-                            alignment: Alignment.bottomCenter,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: point.color.withValues(alpha: 0.72),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                      ],
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '${tr('mon_peakWindow')} ${etapa3Num(safeMax)} $etapa3Unit.',
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 12,
-              height: 1.35,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

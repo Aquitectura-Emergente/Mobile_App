@@ -4,11 +4,27 @@ import '../../contexts/alerts/application/alert_facade.dart';
 import '../../contexts/alerts/domain/alert_filter.dart';
 import '../../contexts/alerts/domain/client_alert.dart';
 import '../../contexts/devicemanagement/application/device_facade.dart';
+import '../../contexts/devicemanagement/domain/client_device.dart';
 import '../../contexts/devicemanagement/domain/plug_status.dart';
+import '../../contexts/radiationmonitoring/domain/radiation_level.dart';
 import '../../core/http/api_client.dart';
+import '../../design_system/design_system.dart';
 import '../../services/app_i18n.dart';
+import '../../services/ems_format.dart';
+import '../shared/measurement_overview.dart';
 import 'etapa3_components.dart';
+import 'plug_screen.dart';
+import 'sensor_detail_screen.dart';
 
+class _AlertsData {
+  _AlertsData(this.alerts, this.devices, this.plugStatus);
+  final List<ClientAlert> alerts;
+  final List<ClientDevice> devices;
+  final PlugStatus? plugStatus;
+}
+
+/// Historial de alertas del hogar: registro de eventos por día, con filtros
+/// y detalle de cada alerta.
 class AlertHistoryScreen extends StatefulWidget {
   const AlertHistoryScreen({super.key});
 
@@ -17,31 +33,28 @@ class AlertHistoryScreen extends StatefulWidget {
 }
 
 class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
-  late Future<List<ClientAlert>> _future;
-  late Future<PlugStatus?> _plug;
+  late Future<_AlertsData> _future = _load();
   AlertFilter _filter = const AlertFilter();
 
-  @override
-  void initState() {
-    super.initState();
-    _future = AlertFacade.all();
-    _plug = _loadPlug();
-  }
-
-  // El enchufe es opcional: si falla, el historial se muestra igual.
-  Future<PlugStatus?> _loadPlug() async {
+  Future<_AlertsData> _load() async {
+    final alerts = await AlertFacade.all();
+    // Dispositivos y enchufe son opcionales: si fallan, el historial se muestra igual.
+    List<ClientDevice> devices = const [];
+    PlugStatus? plug;
     try {
-      return await DeviceFacade.homePlugStatus();
-    } catch (_) {
-      return null;
-    }
+      devices = await DeviceFacade.all();
+      final p = homePlugOf(devices);
+      if (p != null) plug = await DeviceFacade.plugStatus(p);
+    } catch (_) {}
+    return _AlertsData(alerts, devices, plug);
   }
 
-  void _reload() {
-    setState(() {
-      _future = AlertFacade.all();
-      _plug = _loadPlug();
-    });
+  Future<void> _reload() async {
+    final f = _load();
+    setState(() { _future = f; });
+    try {
+      await f;
+    } catch (_) {}
   }
 
   @override
@@ -50,444 +63,292 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
       title: tr('al_title'),
       subtitle: tr('al_subtitle'),
       selectedIndex: 3,
-      trailing: IconButton(
-        tooltip: tr('common_refresh'),
-        onPressed: _reload,
-        style: IconButton.styleFrom(
-          backgroundColor: Etapa3Palette.panel,
-          foregroundColor: Etapa3Palette.blue,
-          side: const BorderSide(color: Etapa3Palette.stroke),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-        icon: const Icon(Icons.refresh),
-      ),
-      child: FutureBuilder<List<ClientAlert>>(
+      onRefresh: _reload,
+      trailing: EmsIconButton(icon: PhosphorIconsRegular.arrowsClockwise, tooltip: tr('common_refresh'), onPressed: _reload),
+      child: FutureBuilder<_AlertsData>(
         future: _future,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Etapa3Loading();
-          }
-          if (snapshot.hasError) {
-            final msg = snapshot.error is ApiException
-                ? (snapshot.error as ApiException).message
-                : tr('al_errLoad');
+          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) return const Etapa3Loading();
+          if (snapshot.hasError && !snapshot.hasData) {
+            final msg = snapshot.error is ApiException ? (snapshot.error as ApiException).message : tr('al_errLoad');
             return Etapa3Error(message: msg, onRetry: _reload);
           }
-          return _buildList(snapshot.data!);
+          return _buildList(context, snapshot.data!);
         },
       ),
     );
   }
 
-  Widget _buildList(List<ClientAlert> all) {
-    final alerts = _filter.apply(all);
-    final high = alerts.where((a) => a.level == 'danger').length;
-    final medium = alerts.where((a) => a.level == 'caution').length;
+  Widget _buildList(BuildContext context, _AlertsData data) {
+    final alerts = _filter.apply(data.alerts);
+    final tally = AlertFacade.tally(alerts);
+    final devices = AlertFilter.devicesIn(data.alerts);
+    final groups = <DateTime?, List<ClientAlert>>{};
+    for (final a in alerts) {
+      final t = etapa3ParseTime(a.recordedAt);
+      groups.putIfAbsent(t == null ? null : DateTime(t.year, t.month, t.day), () => []).add(a);
+    }
+    final keys = groups.keys.toList()
+      ..sort((a, b) => b == null ? -1 : (a == null ? 1 : b.compareTo(a)));
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _AlertSummary(total: alerts.length, high: high, medium: medium),
-        FutureBuilder<PlugStatus?>(
-          future: _plug,
-          builder: (context, snap) {
-            final command = snap.data?.lastCommand;
-            if (command == null) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.only(top: 18),
-              child: _PlugActionCard(command: command),
-            );
-          },
+        _Tally(tally: tally),
+        if (data.plugStatus?.lastCommand != null) ...[
+          const SizedBox(height: EmsSpace.s4),
+          _PlugEvent(
+            command: data.plugStatus!.lastCommand!,
+            onTap: () {
+              final plug = homePlugOf(data.devices);
+              if (plug != null) Navigator.of(context).push(MaterialPageRoute(builder: (_) => PlugScreen(device: plug)));
+            },
+          ),
+        ],
+        const SizedBox(height: EmsSpace.s7),
+        EmsSegmented<AlertPeriod>(
+          value: _filter.period,
+          segments: [
+            (AlertPeriod.all, tr('al_periodAll')),
+            (AlertPeriod.today, tr('al_periodToday')),
+            (AlertPeriod.week, tr('al_periodWeek')),
+            (AlertPeriod.month, tr('al_periodMonth')),
+          ],
+          onChanged: (p) => setState(() => _filter = _filter.copyWith(period: p)),
         ),
-        const SizedBox(height: 18),
-        SectionLabel(tr('al_events')),
-        const SizedBox(height: 10),
-        _FilterBar(
-          filter: _filter,
-          devices: AlertFilter.devicesIn(all),
-          onChanged: (f) => setState(() => _filter = f),
-        ),
-        const SizedBox(height: 12),
-        if (alerts.isEmpty)
-          GlassPanel(
-            child: Row(
-              children: [
-                const Icon(Icons.check_circle_outline,
-                    color: Etapa3Palette.green, size: 22),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    tr(_filter.isActive ? 'al_emptyFiltered' : 'al_empty'),
-                    style: const TextStyle(
-                      color: Etapa3Palette.muted,
-                      fontSize: 13,
-                      height: 1.4,
-                    ),
-                  ),
+        const SizedBox(height: EmsSpace.s4),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _Chip(label: tr('m_allLevels'), selected: _filter.level == null, onTap: () => setState(() => _filter = _filter.copyWith(level: () => null))),
+              for (final l in [RadiationLevel.danger, RadiationLevel.caution, RadiationLevel.safe])
+                _Chip(
+                  label: levelLabel(l),
+                  color: levelSignal(context, l),
+                  selected: _filter.level == l,
+                  onTap: () => setState(() => _filter = _filter.copyWith(level: () => _filter.level == l ? null : l)),
                 ),
-              ],
+              if (devices.length > 1)
+                _Chip(
+                  label: _filter.deviceId == null ? tr('al_allSensors') : (devices[_filter.deviceId] ?? tr('m_sensor')),
+                  icon: PhosphorIconsRegular.caretDown,
+                  selected: _filter.deviceId != null,
+                  onTap: () => _pickDevice(context, devices),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: EmsSpace.s6),
+        if (alerts.isEmpty)
+          EmsPanel(
+            padding: EdgeInsets.zero,
+            child: EmsEmptyState(
+              icon: PhosphorIconsRegular.checkCircle,
+              title: tr(_filter.isActive ? 'al_emptyFiltered' : 'al_empty'),
+              action: _filter.isActive
+                  ? EmsButton(label: tr('m_clearFilters'), kind: EmsButtonKind.secondary, expand: false, onPressed: () => setState(() => _filter = const AlertFilter()))
+                  : null,
             ),
           )
         else
-          for (final alert in alerts) ...[
-            _AlertCard(alert: alert),
-            const SizedBox(height: 10),
+          for (final k in keys) ...[
+            EmsGroup(
+              title: k == null ? tr('m_noDate') : EmsFormat.dayTitle(k),
+              trailing: Text('${groups[k]!.length}', style: context.type.monoSm),
+              children: [
+                for (final a in groups[k]!) _AlertRow(alert: a, onTap: () => _openAlert(context, a, data.devices)),
+              ],
+            ),
+            const SizedBox(height: EmsSpace.s6),
           ],
       ],
     );
   }
-}
 
-class _AlertSummary extends StatelessWidget {
-  const _AlertSummary({
-    required this.total,
-    required this.high,
-    required this.medium,
-  });
-
-  final int total;
-  final int high;
-  final int medium;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasHigh = high > 0;
-    return GlassPanel(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Future<void> _pickDevice(BuildContext context, Map<int, String> devices) async {
+    final picked = await showEmsSheet<int?>(
+      context,
+      title: tr('m_filterBySensor'),
+      builder: (ctx) => EmsGroup(
         children: [
-          Row(
+          EmsRow(
+            title: tr('al_allSensors'),
+            trailing: _filter.deviceId == null ? Icon(PhosphorIconsRegular.check, color: ctx.ems.primary, size: 18) : null,
+            onTap: () => Navigator.of(ctx).pop(-1),
+          ),
+          for (final e in devices.entries)
+            EmsRow(
+              icon: PhosphorIconsRegular.broadcast,
+              title: e.value,
+              trailing: _filter.deviceId == e.key ? Icon(PhosphorIconsRegular.check, color: ctx.ems.primary, size: 18) : null,
+              onTap: () => Navigator.of(ctx).pop(e.key),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _filter = _filter.copyWith(deviceId: () => picked == -1 ? null : picked));
+  }
+
+  void _openAlert(BuildContext context, ClientAlert a, List<ClientDevice> devices) {
+    ClientDevice? device;
+    for (final d in devices) {
+      if (d.id == a.deviceId) device = d;
+    }
+    final t = etapa3ParseTime(a.recordedAt);
+    showEmsSheet<void>(
+      context,
+      eyebrow: tr('m_alertDetail'),
+      title: a.title,
+      builder: (ctx) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [EmsTag(levelLabel(a.level), tone: levelTone(a.level), icon: levelIcon(a.level))]),
+          const SizedBox(height: EmsSpace.s5),
+          if (a.value != null) ...[
+            EmsHeroValue(value: EmsFormat.value(a.value, decimals: 2), unit: 'µT', color: emsTone(ctx, levelTone(a.level)).fg, size: 44),
+            const SizedBox(height: EmsSpace.s5),
+          ],
+          if (a.description.isNotEmpty) ...[
+            Text(a.description, style: ctx.type.body.copyWith(color: ctx.ems.textSecondary)),
+            const SizedBox(height: EmsSpace.s5),
+          ],
+          EmsGroup(
             children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: (hasHigh ? Etapa3Palette.red : Etapa3Palette.green)
-                      .withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: (hasHigh ? Etapa3Palette.red : Etapa3Palette.green)
-                        .withValues(alpha: 0.24),
-                  ),
-                ),
-                child: Icon(
-                  Icons.notifications_active_outlined,
-                  color: hasHigh ? Etapa3Palette.red : Etapa3Palette.green,
-                  size: 27,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$total ${tr('al_eventsLogged')}',
-                      style: const TextStyle(
-                        color: Etapa3Palette.text,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      hasHigh
-                          ? '$high ${tr('al_highNeedReview')}'
-                          : tr('al_noHigh'),
-                      style: const TextStyle(
-                        color: Etapa3Palette.muted,
-                        fontSize: 13,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              EmsKeyValue(label: tr('m_date'), value: t == null ? (a.time ?? '—') : EmsFormat.date(t)),
+              if (t != null) EmsKeyValue(label: tr('m_time'), value: EmsFormat.timeSec(t), mono: true),
+              EmsKeyValue(label: tr('m_source'), value: a.deviceName ?? device?.name ?? '—'),
+              if (device?.location != null) EmsKeyValue(label: tr('m_location'), value: device!.location!),
+              if (a.type.isNotEmpty) EmsKeyValue(label: tr('m_alertType'), value: a.type, mono: true),
             ],
           ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: _SummaryStat(
-                  label: tr('al_high'),
-                  value: high.toString().padLeft(2, '0'),
-                  color: Etapa3Palette.red,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _SummaryStat(
-                  label: tr('al_medium'),
-                  value: medium.toString().padLeft(2, '0'),
-                  color: Etapa3Palette.amber,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _SummaryStat(
-                  label: tr('al_total'),
-                  value: total.toString().padLeft(2, '0'),
-                  color: Etapa3Palette.cyan,
-                ),
-              ),
-            ],
-          ),
+          if (device != null && !device.isPlug) ...[
+            const SizedBox(height: EmsSpace.s5),
+            EmsButton(
+              label: tr('m_openSensor'),
+              kind: EmsButtonKind.secondary,
+              icon: PhosphorIconsRegular.broadcast,
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => SensorDetailScreen(device: device!)));
+              },
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _SummaryStat extends StatelessWidget {
-  const _SummaryStat({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
+class _Tally extends StatelessWidget {
+  const _Tally({required this.tally});
 
-  final String label;
-  final String value;
-  final Color color;
+  final AlertTally tally;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Etapa3Palette.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AlertCard extends StatelessWidget {
-  const _AlertCard({required this.alert});
-
-  final ClientAlert alert;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = etapa3LevelColor(alert.level);
-    final icon = alert.level == 'danger'
-        ? Icons.warning_amber_rounded
-        : Icons.bolt;
-    return GlassPanel(
-      padding: const EdgeInsets.all(15),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: color.withValues(alpha: 0.24)),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
+    final c = context.ems;
+    Widget cell(String label, int n, Color? color) => Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(EmsSpace.s4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Expanded(
-                      child: Text(
-                        alert.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Etapa3Palette.text,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      etapa3TimeAgo(alert.recordedAt, fallbackDate: alert.time),
-                      style: const TextStyle(
-                        color: Etapa3Palette.quiet,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    if (color != null) ...[Container(width: 7, height: 7, color: color), const SizedBox(width: EmsSpace.s2)],
+                    Flexible(child: Text(label.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.type.eyebrow.copyWith(fontSize: 10))),
                   ],
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  alert.deviceName ?? 'Sensor',
-                  style: const TextStyle(
-                    color: Etapa3Palette.blue,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  alert.description,
-                  style: const TextStyle(
-                    color: Etapa3Palette.muted,
-                    fontSize: 12,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                StatusPill(
-                  label: '${etapa3Num(alert.value)} $etapa3Unit',
-                  color: color,
-                ),
+                const SizedBox(height: EmsSpace.s2),
+                Text('$n', style: context.type.metricLg.copyWith(fontSize: 26, color: n > 0 && color != null ? color : null)),
               ],
             ),
           ),
-        ],
+        );
+    return Container(
+      decoration: BoxDecoration(color: c.surface, border: Border.all(color: c.border), borderRadius: BorderRadius.circular(EmsRadius.md)),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            cell(tr('al_total'), tally.total, null),
+            VerticalDivider(width: 1, color: c.borderSubtle),
+            cell(tr('m_lvDanger'), tally.danger, c.dangerSignal),
+            VerticalDivider(width: 1, color: c.borderSubtle),
+            cell(tr('m_lvCaution'), tally.caution, c.warningSignal),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Filtros por fecha, nivel y sensor.
-class _FilterBar extends StatelessWidget {
-  const _FilterBar({
-    required this.filter,
-    required this.devices,
-    required this.onChanged,
-  });
+class _AlertRow extends StatelessWidget {
+  const _AlertRow({required this.alert, required this.onTap});
 
-  final AlertFilter filter;
-  final Map<int, String> devices;
-  final ValueChanged<AlertFilter> onChanged;
+  final ClientAlert alert;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final periods = {
-      AlertPeriod.all: tr('al_periodAll'),
-      AlertPeriod.today: tr('al_periodToday'),
-      AlertPeriod.week: tr('al_periodWeek'),
-      AlertPeriod.month: tr('al_periodMonth'),
-    };
-    final levels = <String?, String>{
-      null: tr('map_all'),
-      'danger': tr('map_danger'),
-      'caution': tr('map_caution'),
-      'safe': tr('map_safe'),
-    };
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final e in periods.entries)
-              _Chip(
-                label: e.value,
-                selected: filter.period == e.key,
-                color: Etapa3Palette.cyan,
-                onTap: () => onChanged(filter.copyWith(period: e.key)),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final e in levels.entries)
-              _Chip(
-                label: e.value,
-                selected: filter.level == e.key,
-                color: e.key == null
-                    ? Etapa3Palette.cyan
-                    : etapa3LevelColor(e.key),
-                onTap: () => onChanged(filter.copyWith(level: () => e.key)),
-              ),
-          ],
-        ),
-        if (devices.length > 1) ...[
-          const SizedBox(height: 8),
-          DropdownButton<int?>(
-            value: devices.containsKey(filter.deviceId) ? filter.deviceId : null,
-            isExpanded: true,
-            dropdownColor: Etapa3Palette.panel,
-            style: const TextStyle(color: Etapa3Palette.text, fontSize: 13),
-            underline: const SizedBox.shrink(),
-            items: [
-              DropdownMenuItem<int?>(
-                  value: null, child: Text(tr('al_allSensors'))),
-              for (final e in devices.entries)
-                DropdownMenuItem<int?>(value: e.key, child: Text(e.value)),
-            ],
-            onChanged: (id) => onChanged(filter.copyWith(deviceId: () => id)),
-          ),
-        ],
-      ],
+    final t = etapa3ParseTime(alert.recordedAt);
+    return EmsRow(
+      rail: levelSignal(context, alert.level),
+      icon: levelIcon(alert.level),
+      iconTone: levelTone(alert.level),
+      title: alert.title,
+      subtitle: [
+        if (alert.deviceName != null) alert.deviceName!,
+        if (t != null) EmsFormat.time(t) else if (alert.time != null) alert.time!,
+      ].join(' · '),
+      value: alert.value == null ? null : '${EmsFormat.value(alert.value)} µT',
+      mono: true,
+      onTap: onTap,
     );
   }
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.label,
-    required this.selected,
-    required this.color,
-    required this.onTap,
-  });
+  const _Chip({required this.label, required this.selected, required this.onTap, this.color, this.icon});
 
   final String label;
   final bool selected;
-  final Color color;
   final VoidCallback onTap;
+  final Color? color;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.16) : Etapa3Palette.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color:
-                selected ? color.withValues(alpha: 0.6) : Etapa3Palette.stroke,
+    final c = context.ems;
+    return Padding(
+      padding: const EdgeInsets.only(right: EmsSpace.s3),
+      child: Semantics(
+        selected: selected,
+        button: true,
+        child: Material(
+          color: selected ? c.primarySubtle : c.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(EmsRadius.sm),
+            side: BorderSide(color: selected ? c.primaryBorder : c.border),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? color : Etapa3Palette.muted,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(EmsRadius.sm),
+            child: Container(
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: EmsSpace.s4),
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (color != null) ...[Container(width: 7, height: 7, color: color), const SizedBox(width: EmsSpace.s3)],
+                  Text(label, style: context.type.label.copyWith(color: selected ? c.primary : c.text)),
+                  if (icon != null) ...[const SizedBox(width: EmsSpace.s2), Icon(icon, size: 14, color: c.textTertiary)],
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -495,50 +356,30 @@ class _Chip extends StatelessWidget {
   }
 }
 
-/// Última orden enviada al enchufe y en qué quedó.
-class _PlugActionCard extends StatelessWidget {
-  const _PlugActionCard({required this.command});
+/// Última orden al enchufe: evento del actuador, no una lectura.
+class _PlugEvent extends StatelessWidget {
+  const _PlugEvent({required this.command, required this.onTap});
 
   final PlugCommand command;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final off = command.action == PlugPower.off;
-    final (statusLabel, color) = command.isConfirmed
-        ? (tr('al_plugConfirmed'), Etapa3Palette.green)
+    final (label, tone) = command.isConfirmed
+        ? (tr('al_plugConfirmed'), EmsTone.safe)
         : command.hasFailed
-            ? (tr('al_plugFailed'), Etapa3Palette.red)
-            : (tr('plug_pendingBadge'), Etapa3Palette.amber);
-    return GlassPanel(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Icon(Icons.power_settings_new,
-              color: off ? Etapa3Palette.red : Etapa3Palette.green, size: 26),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tr(off ? 'al_plugOff' : 'al_plugOn'),
-                  style: const TextStyle(
-                    color: Etapa3Palette.text,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  etapa3TimeAgo(command.requestedAt),
-                  style:
-                      const TextStyle(color: Etapa3Palette.muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          StatusPill(label: statusLabel, color: color),
-        ],
+            ? (tr('al_plugFailed'), EmsTone.danger)
+            : (tr('plug_pendingBadge'), EmsTone.warning);
+    return EmsPanel(
+      padding: EdgeInsets.zero,
+      onTap: onTap,
+      child: EmsRow(
+        icon: PhosphorIconsRegular.plug,
+        title: tr(off ? 'al_plugOff' : 'al_plugOn'),
+        subtitle: '${tr('m_actuatorEvent')} · ${etapa3TimeAgo(command.requestedAt)}',
+        trailing: EmsTag(label, tone: tone),
+        onTap: onTap,
       ),
     );
   }

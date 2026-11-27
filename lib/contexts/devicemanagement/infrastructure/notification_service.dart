@@ -41,4 +41,24 @@ class NotificationService {
       notificationDetails: details,
     );
   }
+
+  /// Alerta del operario (umbral del dosímetro, límite de exposición...).
+  static Future<void> showAlert(String title, String body) async {
+    await init();
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'emsafe_alerts',
+        'Radiation alerts',
+        channelDescription: 'DANGER-level radiation notifications',
+        importance: Importance.max,
+        priority: Priority.high,
+      ),
+    );
+    await _plugin.show(
+      id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title: title,
+      body: body,
+      notificationDetails: details,
+    );
+  }
 }

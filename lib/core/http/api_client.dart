@@ -60,9 +60,11 @@ class ApiClient {
     Map<String, dynamic> body, {
     bool auth = true,
   }) async {
-    return _send(() => http
-        .post(_uri(path), headers: _headers(auth: auth), body: jsonEncode(body))
-        .timeout(_timeout));
+    return _send(
+        () => http
+            .post(_uri(path), headers: _headers(auth: auth), body: jsonEncode(body))
+            .timeout(_timeout),
+        auth: auth);
   }
 
   static Future<dynamic> put(String path, Map<String, dynamic> body) async {
@@ -77,7 +79,8 @@ class ApiClient {
         .timeout(_timeout));
   }
 
-  static Future<dynamic> _send(Future<http.Response> Function() request) async {
+  static Future<dynamic> _send(Future<http.Response> Function() request,
+      {bool auth = true}) async {
     http.Response res;
     try {
       res = await request();
@@ -86,10 +89,10 @@ class ApiClient {
         'Could not reach the server. Check your connection and that the backend is running.',
       );
     }
-    return _handle(res);
+    return _handle(res, auth: auth);
   }
 
-  static dynamic _handle(http.Response res) {
+  static dynamic _handle(http.Response res, {bool auth = true}) {
     dynamic decoded;
     if (res.body.isNotEmpty) {
       try {
@@ -108,8 +111,11 @@ class ApiClient {
 
     // Con el token vencido el backend responde 403 fuera de dosimetría, así
     // que se trata igual que un 401.
-    if (res.statusCode == 401 ||
-        (res.statusCode == 403 && SessionStore.isExpired(SessionStore.token))) {
+    // Sin token (login, registro) un 401 son credenciales inválidas, no una
+    // sesión vencida: se deja pasar el mensaje del backend.
+    if (auth &&
+        (res.statusCode == 401 ||
+            (res.statusCode == 403 && SessionStore.isExpired(SessionStore.token)))) {
       // Token invalid/expired or the account was deactivated/deleted → sign out.
       _forceSignOut();
       throw ApiException('Session expired. Please sign in again.',
