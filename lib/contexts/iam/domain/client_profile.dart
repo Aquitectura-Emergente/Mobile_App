@@ -48,11 +48,13 @@ class ClientProfile {
 
 /// Roles que la app movil admite.
 ///
-/// El login rechaza cualquier otro: el portal web es para admin y tecnico, y
-/// aqui solo entran clientes (se acepta `admin` para poder probar la app).
+/// El login rechaza cualquier otro: el portal web es para admin, tecnico y
+/// responsable de SSO. Aqui entran el cliente del hogar y el operario de planta
+/// (se acepta `admin` para poder probar la app).
 abstract final class MobileRole {
   static const String client = 'client';
+  static const String worker = 'worker';
   static const String admin = 'admin';
 
-  static bool isAllowed(String role) => role == client || role == admin;
+  static bool isAllowed(String role) => role == client || role == worker || role == admin;
 }

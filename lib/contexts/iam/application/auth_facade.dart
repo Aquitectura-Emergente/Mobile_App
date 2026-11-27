@@ -12,15 +12,15 @@ import '../infrastructure/session_store.dart';
 class AuthFacade {
   /// Entra y guarda la sesion.
   ///
-  /// La regla de que solo CLIENT (y ADMIN, para pruebas) pueden usar el movil
-  /// vive en `MobileRole`, no suelta aqui.
+  /// La regla de quién puede usar el móvil (cliente, operario y, para pruebas,
+  /// admin) vive en `MobileRole`, no suelta aquí.
   static Future<void> login(String email, String password) async {
     final data = await IamApi.login(email, password);
     final role = (data['role'] ?? '').toString().toLowerCase();
 
     if (!MobileRole.isAllowed(role)) {
       throw ApiException(
-        'This account is not a client account. Use the EMSafe web portal instead.',
+        'This account is not a client or operator account. Use the EMSafe web portal instead.',
       );
     }
 
@@ -45,8 +45,14 @@ class AuthFacade {
 
   /// Vuelve a detectar el segmento y lo guarda si se pudo decidir.
   static Future<UserSegment> refreshSegment() async {
+    final role = await SessionStore.role();
     // El admin entra para probar la app del hogar.
-    if (await SessionStore.role() == MobileRole.admin) return UserSegment.home;
+    if (role == MobileRole.admin) return UserSegment.home;
+    // Una cuenta WORKER siempre es operario, aunque aún no tenga membership.
+    if (role == MobileRole.worker) {
+      await SessionStore.saveSegment(UserSegment.operator.name);
+      return UserSegment.operator;
+    }
     final detected = await SegmentProbe.detect();
     if (detected != null) await SessionStore.saveSegment(detected.name);
     return detected ?? UserSegment.home;
